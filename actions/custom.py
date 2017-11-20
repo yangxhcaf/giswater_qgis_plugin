@@ -146,16 +146,13 @@ class Custom(ParentAction):
     def import_visit_csv(self):
         
         path = utils_giswater.getWidgetText("txt_file_csv")
-        catalog = utils_giswater.getWidgetText("visit_cat")
-        #feature_type = utils_giswater.getWidgetText(self.feature_type).lower()
         if path != 'null':
             #self.dlg_import_visit_csv.progressBar.setVisible(True)
-            message = 'Segur que vols actualitzar la taula?'
-            #reply = QMessageBox.question(None, 'Actualitzacio de taules', message, QMessageBox.No | QMessageBox.Yes)
-            #if reply == QMessageBox.Yes:
-                #self.deleteTable()
-            self.read_csv(path)
-            self.refresh_map_canvas()
+            message = 'Segur que vols importar les dades?'
+            reply = QMessageBox.question(None, 'Actualitzacio de taules', message, QMessageBox.No | QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                self.read_csv(path)
+                self.refresh_map_canvas()
 
 
     def read_csv(self, path):
