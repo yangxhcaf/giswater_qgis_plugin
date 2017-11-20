@@ -235,3 +235,20 @@ class ParentAction():
         # Set text to QLineEdit
         widget.setText(abs_path[0]+'/')
                         
+
+    def close_dialog(self, dlg=None): 
+        ''' Close dialog '''
+        
+        if dlg is None or type(dlg) is bool:
+            dlg = self.dlg
+        try:
+            dlg.close()
+        except AttributeError:
+            pass
+
+    def refresh_map_canvas(self):
+        """ Refresh all layers present in map canvas """
+
+        self.iface.mapCanvas().refreshAllLayers()
+        for layer_refresh in self.iface.mapCanvas().layers():
+            layer_refresh.triggerRepaint()
