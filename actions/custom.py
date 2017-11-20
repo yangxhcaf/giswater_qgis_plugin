@@ -291,11 +291,11 @@ class Custom(ParentAction):
         row = self.controller.get_row(sql, commit=True)
 
         if str(row[0]) == '0':
-            message = u"El procés d'importació ha estat satisfactori"
+            message = "La importacio ha estat satisfactoria"
             QMessageBox.information(None, "Info", self.controller.tr(message, context_name='ui_message'))
         else:
-            message = u"S'han detectat " + str(row) + u" inconsistències en les dades d'inventari.\n"
-            message += u"Si us plau dona-li un cop d'ull a les taules 'review'"
+            message = "Detectades " + str(row) + " inconsistencies en les dades inventari.\n"
+            message += "Si us plau dona-li una ullada a les taules 'review'"
             QMessageBox.critical(None, "Alerta", self.controller.tr(message, context_name='ui_message'))
 
 
