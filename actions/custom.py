@@ -287,7 +287,8 @@ class Custom(ParentAction):
                     self.dlg_import_visit_csv.progressBar.setValue(cont)
 
         sql = ("SELECT "+self.controller.schema_name+".gw_fct_om_visit('"
-               +str(self.dlg_import_visit_csv.visit_cat.currentIndex()+1)+ "', '" + str(feature_type).upper()+"')")
+               + str(self.dlg_import_visit_csv.visit_cat.currentIndex()+1) + ""
+               "', '" + str(feature_type).upper()+"', '"+str(path)+"')")
         row = self.controller.get_row(sql, commit=True)
 
         if str(row[0]) == '0':
