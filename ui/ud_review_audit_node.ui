@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>591</width>
-    <height>221</height>
+    <width>633</width>
+    <height>667</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -22,64 +22,15 @@
   <widget class="QGroupBox" name="groupBox">
    <property name="geometry">
     <rect>
-     <x>10</x>
-     <y>10</y>
-     <width>571</width>
-     <height>196</height>
+     <x>15</x>
+     <y>153</y>
+     <width>598</width>
+     <height>364</height>
     </rect>
    </property>
    <property name="title">
-    <string>Node Review</string>
+    <string>Data review</string>
    </property>
-   <widget class="QLineEdit" name="node_id">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>450</x>
-      <y>15</y>
-      <width>100</width>
-      <height>18</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-      <italic>false</italic>
-     </font>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="maxLength">
-     <number>500</number>
-    </property>
-    <property name="echoMode">
-     <enum>QLineEdit::Normal</enum>
-    </property>
-   </widget>
-   <widget class="QLabel" name="id_label">
-    <property name="geometry">
-     <rect>
-      <x>405</x>
-      <y>15</y>
-      <width>51</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-      <pointsize>8</pointsize>
-      <weight>50</weight>
-      <bold>false</bold>
-     </font>
-    </property>
-    <property name="text">
-     <string>Node id:</string>
-    </property>
-   </widget>
    <widget class="QLabel" name="old_values">
     <property name="geometry">
      <rect>
@@ -132,7 +83,7 @@
     <property name="geometry">
      <rect>
       <x>15</x>
-      <y>70</y>
+      <y>81</y>
       <width>91</width>
       <height>21</height>
      </rect>
@@ -156,7 +107,7 @@
     <property name="geometry">
      <rect>
       <x>115</x>
-      <y>70</y>
+      <y>81</y>
       <width>160</width>
       <height>18</height>
      </rect>
@@ -169,7 +120,7 @@
     <property name="geometry">
      <rect>
       <x>305</x>
-      <y>70</y>
+      <y>81</y>
       <width>160</width>
       <height>18</height>
      </rect>
@@ -185,7 +136,7 @@
     <property name="geometry">
      <rect>
       <x>115</x>
-      <y>100</y>
+      <y>123</y>
       <width>160</width>
       <height>18</height>
      </rect>
@@ -198,7 +149,7 @@
     <property name="geometry">
      <rect>
       <x>15</x>
-      <y>100</y>
+      <y>123</y>
       <width>91</width>
       <height>21</height>
      </rect>
@@ -219,7 +170,7 @@
     <property name="geometry">
      <rect>
       <x>305</x>
-      <y>100</y>
+      <y>123</y>
       <width>160</width>
       <height>18</height>
      </rect>
@@ -256,7 +207,7 @@
     <property name="geometry">
      <rect>
       <x>515</x>
-      <y>70</y>
+      <y>81</y>
       <width>21</width>
       <height>17</height>
      </rect>
@@ -269,7 +220,7 @@
     <property name="geometry">
      <rect>
       <x>515</x>
-      <y>100</y>
+      <y>123</y>
       <width>21</width>
       <height>17</height>
      </rect>
@@ -278,11 +229,112 @@
      <string/>
     </property>
    </widget>
+  </widget>
+  <widget class="QComboBox" name="is_validated">
+   <property name="geometry">
+    <rect>
+     <x>261</x>
+     <y>549</y>
+     <width>351</width>
+     <height>18</height>
+    </rect>
+   </property>
+   <property name="frame">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_review_status_2">
+   <property name="geometry">
+    <rect>
+     <x>150</x>
+     <y>549</y>
+     <width>70</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+     <pointsize>8</pointsize>
+     <weight>75</weight>
+     <bold>true</bold>
+    </font>
+   </property>
+   <property name="text">
+    <string>Validated:</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton">
+   <property name="geometry">
+    <rect>
+     <x>519</x>
+     <y>615</y>
+     <width>93</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Close</string>
+   </property>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_2">
+   <property name="geometry">
+    <rect>
+     <x>18</x>
+     <y>24</y>
+     <width>595</width>
+     <height>115</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>Basics</string>
+   </property>
+   <widget class="QLineEdit" name="lot_id">
+    <property name="geometry">
+     <rect>
+      <x>129</x>
+      <y>39</y>
+      <width>151</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true"/>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="node_id">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>129</x>
+      <y>78</y>
+      <width>151</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <italic>false</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="maxLength">
+     <number>500</number>
+    </property>
+    <property name="echoMode">
+     <enum>QLineEdit::Normal</enum>
+    </property>
+   </widget>
    <widget class="QLabel" name="label_review_status">
     <property name="geometry">
      <rect>
-      <x>215</x>
-      <y>15</y>
+      <x>27</x>
+      <y>36</y>
       <width>40</width>
       <height>21</height>
      </rect>
@@ -299,53 +351,27 @@
      <string>Lot id:</string>
     </property>
    </widget>
-   <widget class="QLineEdit" name="lot_id">
+   <widget class="QLabel" name="id_label">
     <property name="geometry">
      <rect>
-      <x>250</x>
-      <y>15</y>
-      <width>100</width>
-      <height>18</height>
+      <x>27</x>
+      <y>78</y>
+      <width>51</width>
+      <height>21</height>
      </rect>
     </property>
-    <property name="styleSheet">
-     <string notr="true"/>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>8</pointsize>
+      <weight>50</weight>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string>Node id:</string>
     </property>
    </widget>
-  </widget>
-  <widget class="QComboBox" name="is_validated">
-   <property name="geometry">
-    <rect>
-     <x>125</x>
-     <y>170</y>
-     <width>351</width>
-     <height>18</height>
-    </rect>
-   </property>
-   <property name="frame">
-    <bool>true</bool>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_review_status_2">
-   <property name="geometry">
-    <rect>
-     <x>30</x>
-     <y>170</y>
-     <width>51</width>
-     <height>21</height>
-    </rect>
-   </property>
-   <property name="font">
-    <font>
-     <family>Arial</family>
-     <pointsize>8</pointsize>
-     <weight>75</weight>
-     <bold>true</bold>
-    </font>
-   </property>
-   <property name="text">
-    <string>Validated:</string>
-   </property>
   </widget>
  </widget>
  <resources/>
