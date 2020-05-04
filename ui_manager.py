@@ -276,6 +276,11 @@ class DrawProfile(GwDialog, FORM_CLASS):
     pass
 
 
+FORM_CLASS = get_ui_class('draw_profile_v3.ui')
+class DrawProfilee(GwMainWindow, FORM_CLASS):
+    pass
+
+
 FORM_CLASS = get_ui_class('duplicate_psector.ui')
 class DupPsector(GwDialog, FORM_CLASS):
     pass
