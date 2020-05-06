@@ -5,6 +5,7 @@ General Public License as published by the Free Software Foundation, either vers
 or (at your option) any later version.
 """
 # -*- coding: utf-8 -*-
+
 from qgis.core import QgsExpression, QgsFeatureRequest
 from qgis.PyQt.QtCore import Qt, QDate, QStringListModel
 from qgis.PyQt.QtSql import QSqlTableModel
@@ -46,7 +47,7 @@ class ManageWorkcatEnd(ParentManage):
         self.layers['arc'] = self.controller.get_group_layers('arc')
         self.layers['node'] = self.controller.get_group_layers('node')
         self.layers['connec'] = self.controller.get_group_layers('connec')
-        self.layers['element'] = [self.controller.get_layer_by_tablename('v_edit_element')]
+        self.layers['element'] = self.controller.get_group_layers('element')
 
         # Remove 'gully' for 'WS'
         self.project_type = self.controller.get_project_type()
@@ -76,7 +77,7 @@ class ManageWorkcatEnd(ParentManage):
         self.dlg_work_end.btn_delete.clicked.connect(partial(self.delete_records, self.dlg_work_end, self.table_object))
         self.dlg_work_end.btn_snapping.clicked.connect(partial(self.selection_init, self.dlg_work_end, self.table_object))
         self.dlg_work_end.workcat_id_end.activated.connect(partial(self.fill_workids))
-        self.dlg_work_end.tab_feature.currentChanged.connect(partial(self.tab_feature_changed, self.dlg_work_end, self.table_object, excluded_layers=["v_edit_element"]))
+        self.dlg_work_end.tab_feature.currentChanged.connect(partial(self.tab_feature_changed, self.dlg_work_end, self.table_object))
 
         # Set values
         self.fill_fields()
@@ -89,7 +90,7 @@ class ManageWorkcatEnd(ParentManage):
         # Set default tab 'arc'
         self.dlg_work_end.tab_feature.setCurrentIndex(0)
         self.geom_type = "arc"
-        self.tab_feature_changed(self.dlg_work_end, self.table_object, excluded_layers=["v_edit_element"])
+        self.tab_feature_changed(self.dlg_work_end, self.table_object)
 
         # Open dialog
         self.open_dialog(self.dlg_work_end, maximize_button=False)
@@ -114,7 +115,7 @@ class ManageWorkcatEnd(ParentManage):
         """ Fill dates and combos cat_work/state type end """
 
         sql = 'SELECT id as id, name as idval FROM value_state_type WHERE id IS NOT NULL AND state = 0'
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         utils_giswater.set_item_data(self.dlg_work_end.cmb_statetype_end, rows, 1)
         row = self.controller.get_config('statetype_end_vdefault')
 
@@ -130,7 +131,7 @@ class ManageWorkcatEnd(ParentManage):
         utils_giswater.setCalendarDate(self.dlg_work_end, "enddate", enddate)
 
         sql = "SELECT id FROM cat_work"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         utils_giswater.fillComboBox(self.dlg_work_end, self.dlg_work_end.workcat_id_end, rows, allow_nulls=False)
         utils_giswater.set_autocompleter(self.dlg_work_end.workcat_id_end)
         row = self.controller.get_config('workcat_id_end_vdefault')
@@ -191,7 +192,6 @@ class ManageWorkcatEnd(ParentManage):
 
     def manage_workcat_end_accept(self):
         """ Get elements from all the tables and update his data """
-
         # Setting values
         self.workcat_id_end = utils_giswater.getWidgetText(self.dlg_work_end, self.dlg_work_end.workcat_id_end)
         self.enddate = utils_giswater.getCalendarDate(self.dlg_work_end, self.dlg_work_end.enddate)
@@ -263,8 +263,8 @@ class ManageWorkcatEnd(ParentManage):
 
     def update_geom_type(self, geom_type, ids_list):
         """ Get elements from @geom_type and update his corresponding table """
-
         tablename = "v_edit_" + geom_type
+
         if self.selected_list is None:
             return
 
@@ -447,14 +447,14 @@ class ManageWorkcatEnd(ParentManage):
         """ Close dialog and disconnect snapping """
 
         self.close_dialog(dialog)
-        self.hide_generic_layers(excluded_layers=["v_edit_element"])
+        self.hide_generic_layers()
         self.disconnect_snapping()
         self.disconnect_signal_selection_changed()
         if force_downgrade:
             sql = ("SELECT feature_type, feature_id, log_message "
                    "FROM audit_log_data "
                    "WHERE  fprocesscat_id = '28' AND user_name = current_user")
-            rows = self.controller.get_rows(sql, log_sql=False)
+            rows = self.controller.get_rows(sql, commit=True, log_sql=False)
             ids_ = ""
             if rows:
                 for row in rows:
@@ -545,7 +545,7 @@ class ManageWorkcatEnd(ParentManage):
                 sql = f"INSERT INTO cat_work ({fields}) VALUES ({values})"
                 self.controller.execute_sql(sql, log_sql=True)
                 sql = "SELECT id FROM cat_work ORDER BY id"
-                rows = self.controller.get_rows(sql)
+                rows = self.controller.get_rows(sql, commit=True)
                 if rows:
                     utils_giswater.fillComboBox(self.dlg_work_end, self.dlg_work_end.workcat_id_end, rows)
                     aux = self.dlg_work_end.workcat_id_end.findText(str(cat_work_id))

@@ -5,6 +5,7 @@ General Public License as published by the Free Software Foundation, either vers
 or (at your option) any later version.
 """
 # -*- coding: utf-8 -*-
+
 from qgis.PyQt.QtCore import QStringListModel
 from qgis.PyQt.QtSql import QSqlTableModel
 from qgis.PyQt.QtWidgets import QTableView, QMenu, QPushButton, QLineEdit, QCompleter, QAbstractItemView
@@ -21,7 +22,7 @@ from .. import utils_giswater
 
 from .api_parent import ApiParent
 from .parent import ParentAction
-from ..ui_manager import SelectorUi, Mincut_edit
+from ..ui_manager import ApiSelector, Mincut_edit
 
 
 class MincutConfig(ParentAction):
@@ -87,9 +88,8 @@ class MincutConfig(ParentAction):
         self.set_icon(self.btn_notify, "307")
         try:
             row = self.controller.get_config('sys_mincutalerts_enable', 'value', 'config_param_system')
-            if row:
-                self.custom_action_sms = json.loads(row[0], object_pairs_hook=OrderedDict)
-                self.btn_notify.setVisible(self.custom_action_sms['show_mincut_sms'])
+            self.custom_action_sms = json.loads(row[0], object_pairs_hook=OrderedDict)
+            self.btn_notify.setVisible(self.custom_action_sms['show_mincut_sms'])
         except KeyError as e:
             self.btn_notify.setVisible(False)
 
@@ -127,7 +127,7 @@ class MincutConfig(ParentAction):
                    f"JOIN anl_mincut_result_cat AS t2 ON t1.result_id = t2.id "
                    f"WHERE result_id = {id_}")
 
-            rows = self.controller.get_rows(sql, log_sql=True)
+            rows = self.controller.get_rows(sql, commit=True, log_sql=True)
             if not rows:
                 inf_text += "\nClients: None(No messages will be sent)"
                 continue
@@ -161,7 +161,7 @@ class MincutConfig(ParentAction):
                    f"JOIN anl_mincut_result_cat AS t2 ON t1.result_id = t2.id "
                    f"WHERE result_id = {id_}")
 
-            rows = self.controller.get_rows(sql, log_sql=True)
+            rows = self.controller.get_rows(sql, commit=True, log_sql=True)
             if not rows:
                 continue
 
@@ -193,7 +193,7 @@ class MincutConfig(ParentAction):
             else:
                 sql += f"SET notified= concat(replace(notified::text,']',','),'{{\"code\":\"{result[0]}\",\"date\":\"{_date_sended}\",\"avisats\":\"{result[1]}\",\"afectats\":\"{result[2]}\"}}]')::json "
             sql += f"WHERE id = '{id_}'"
-            row = self.controller.execute_sql(sql)
+            row = self.controller.execute_sql(sql, commit=True)
 
             # Set a model with selected filter. Attach that model to selected table
             self.fill_table_mincut_management(self.tbl_mincut_edit, self.schema_name + ".v_ui_anl_mincut_result_cat")
@@ -216,9 +216,9 @@ class MincutConfig(ParentAction):
             list_id += f"'{id_}', "
         inf_text = inf_text[:-2]
         list_id = list_id[:-2]
-        message = "Are you sure you want to cancel these mincuts?"
+        msg = "Are you sure you want to cancel these mincuts?"
         title = "Cancel mincuts"
-        answer = self.controller.ask_question(message, title, inf_text)
+        answer = self.controller.ask_question(msg, title, inf_text)
         if answer:
             sql = (f"UPDATE anl_mincut_result_cat SET mincut_state = 3 "
                    f" WHERE id::text IN ({list_id})")
@@ -234,15 +234,15 @@ class MincutConfig(ParentAction):
             i = int(model.fieldIndex(field_id))
             value=model.data(model.index(x, i))
             selected_mincuts.append(value)
-        selector_values = f'{{"mincut": {{"ids":{selected_mincuts}}}}}'
-        self.dlg_selector = SelectorUi()
+        selector_values = f'{{"mincut": {{"ids":{selected_mincuts}, "table":"anl_mincut_result_selector", "view":"anl_mincut_result_cat"}}}}'
+        self.dlg_selector = ApiSelector()
         self.load_settings(self.dlg_selector)
         self.dlg_selector.btn_close.clicked.connect(partial(self.close_dialog, self.dlg_selector))
         self.dlg_selector.rejected.connect(partial(self.save_settings, self.dlg_selector))
 
         self.api_parent.get_selector(self.dlg_selector, selector_values)
 
-        self.open_dialog(self.dlg_selector, dlg_name='selector', maximize_button=False)
+        self.open_dialog(self.dlg_selector, maximize_button=False)
 
 
     def populate_combos(self):
@@ -252,7 +252,7 @@ class MincutConfig(ParentAction):
         rows = self.controller.get_rows(sql, log_sql=True, add_empty_row=True)
         utils_giswater.set_item_data(self.dlg_min_edit.state_edit, rows, 1)
 
-        # Fill ComboBox exploitation
+        # Fill ComboBox state
         sql = "SELECT expl_id, name FROM exploitation WHERE expl_id > 0 ORDER BY name"
         rows = self.controller.get_rows(sql, log_sql=False, add_empty_row=True)
         utils_giswater.set_item_data(self.dlg_min_edit.cmb_expl, rows, 1)
@@ -348,7 +348,7 @@ class MincutConfig(ParentAction):
         if state_text != '':
             expr += f" AND state::text ILIKE '%{state_text}%' "
         expr += f" AND (exploitation::text ILIKE '%{expl}%' OR exploitation IS null)"
-
+        self.controller.log_info(str(expr))
         # Refresh model with selected filter
         qtable.model().setFilter(expr)
         qtable.model().select()

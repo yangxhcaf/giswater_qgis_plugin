@@ -41,10 +41,8 @@ class ManageNewPsector(ParentManage):
 
     def new_psector(self, psector_id=None, plan_om=None, is_api=False):
         """ Buttons 45 and 81: New psector """
-
         row = self.controller.get_config(parameter='sys_currency', columns='value::text', table='config_param_system')
-        if row:
-            self.sys_currency = json.loads(row[0], object_pairs_hook=OrderedDict)
+        self.sys_currency = json.loads(row[0], object_pairs_hook=OrderedDict)
 
         # Create the dialog and signals
         self.dlg_plan_psector = Plan_psector()
@@ -116,12 +114,12 @@ class ManageNewPsector(ParentManage):
         sql = ("SELECT expl_id, name from exploitation "
                " JOIN selector_expl USING (expl_id) "
                " WHERE exploitation.expl_id != 0 and cur_user = current_user")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         utils_giswater.set_item_data(self.cmb_expl_id, rows, 1)
 
         # Populate combo status
         sql = "SELECT id, idval FROM plan_typevalue WHERE typevalue = 'psector_status'"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         utils_giswater.set_item_data(self.cmb_status, rows, 1)
 
         if self.plan_om == 'om':
@@ -328,7 +326,7 @@ class ManageNewPsector(ParentManage):
 
             filter_ = "psector_id = '" + str(psector_id) + "'"
             self.fill_table_object(self.tbl_document, self.schema_name + ".v_ui_doc_x_psector", filter_)
-            self.tbl_document.doubleClicked.connect(partial(self.document_open, self.tbl_document))
+            self.tbl_document.doubleClicked.connect(partial(self.document_open))
 
         else:
 
@@ -338,7 +336,7 @@ class ManageNewPsector(ParentManage):
             utils_giswater.set_combo_itemData(self.cmb_status, str(result[1]), 1)
 
         sql = "SELECT state_id FROM selector_state WHERE cur_user = current_user"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         self.all_states = rows
         self.delete_psector_selector('selector_state')
         self.insert_psector_selector('selector_state', 'state_id', '1')
@@ -369,7 +367,7 @@ class ManageNewPsector(ParentManage):
 
         self.dlg_plan_psector.btn_rapports.clicked.connect(partial(self.open_dlg_rapports))
         self.dlg_plan_psector.tab_feature.currentChanged.connect(partial(self.tab_feature_changed,
-            self.dlg_plan_psector, table_object, excluded_layers=["v_edit_element"]))
+            self.dlg_plan_psector, table_object))
         self.dlg_plan_psector.name.textChanged.connect(partial(self.enable_relation_tab, self.plan_om + '_psector'))
         viewname = 'v_edit_' + self.plan_om + '_psector_x_other'
         self.dlg_plan_psector.txt_name.textChanged.connect(partial(self.query_like_widget_text, self.dlg_plan_psector,
@@ -383,15 +381,14 @@ class ManageNewPsector(ParentManage):
             self.plan_om + '_psector', psector_id, 'other'))
 
         self.dlg_plan_psector.btn_doc_insert.clicked.connect(self.document_insert)
-        self.dlg_plan_psector.btn_doc_delete.clicked.connect(partial(self.document_delete, self.tbl_document, 'doc_x_psector'))
+        self.dlg_plan_psector.btn_doc_delete.clicked.connect(self.document_delete)
         self.dlg_plan_psector.btn_doc_new.clicked.connect(partial(self.manage_document, self.tbl_document))
-        self.dlg_plan_psector.btn_open_doc.clicked.connect(partial(self.document_open, self.tbl_document))
-        self.cmb_status.currentIndexChanged.connect(partial(self.show_status_warning))
+        self.dlg_plan_psector.btn_open_doc.clicked.connect(self.document_open)
 
-        # Create list for completer QLineEdit
-        sql = "SELECT DISTINCT(id) FROM v_ui_document ORDER BY id"
-        list_items = self.make_list_for_completer(sql)
-        self.set_completer_lineedit(self.dlg_plan_psector.doc_id, list_items)
+        self.cmb_status.currentIndexChanged.connect(
+            partial(self.show_status_warning))
+
+        self.set_completer()
 
         sql = (f"SELECT other, gexpenses, vat "
                f"FROM {self.plan_om}_psector "
@@ -428,14 +425,14 @@ class ManageNewPsector(ParentManage):
         # Set default tab 'arc'
         self.dlg_plan_psector.tab_feature.setCurrentIndex(0)
         self.geom_type = "arc"
-        self.tab_feature_changed(self.dlg_plan_psector, table_object, excluded_layers=["v_edit_element"])
+        self.tab_feature_changed(self.dlg_plan_psector, table_object)
 
         widget_to_ignore = ('btn_accept', 'btn_cancel', 'btn_rapports', 'btn_open_doc')
         restriction = ('role_basic', 'role_om', 'role_epa', 'role_om')
         self.set_restriction(self.dlg_plan_psector, widget_to_ignore, restriction)
-        # self.controller.translate_form(self.dlg_plan_psector, 'plan_psector')
+
         # Open dialog
-        self.open_dialog(self.dlg_plan_psector, dlg_name='plan_psector', maximize_button=False)
+        self.open_dialog(self.dlg_plan_psector, maximize_button=False)
 
 
     def enable_all(self):
@@ -648,11 +645,11 @@ class ManageNewPsector(ParentManage):
                f" WHERE table_name = '{viewname}'"
                f" AND table_schema = '" + self.schema_name.replace('"', '') + "'"
                f" ORDER BY ordinal_position")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         columns = []
 
         if not rows or rows is None or rows == '':
-            message = "CSV not generated. Check fields from table or view"
+            message = "CSV not generated. Check fields from table or view: "
             self.controller.show_warning(message, parameter=viewname)
             return
         for i in range(0, len(rows)):
@@ -661,7 +658,7 @@ class ManageNewPsector(ParentManage):
 
         sql = (f"SELECT * FROM {viewname}"
                f" WHERE psector_id = '{utils_giswater.getWidgetText(self.dlg_plan_psector, self.dlg_plan_psector.psector_id)}'")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         all_rows = []
         all_rows.append(columns)
         if not rows or rows is None or rows == '':
@@ -678,7 +675,7 @@ class ManageNewPsector(ParentManage):
         
         sql = (f"SELECT DISTINCT(column_name) FROM information_schema.columns"
                f" WHERE table_name = 'v_{self.plan_om}_current_psector'")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         columns = []
         for i in range(0, len(rows)):
             column_name = rows[i]
@@ -813,7 +810,7 @@ class ManageNewPsector(ParentManage):
         
         sql = (f"SELECT name FROM {tablename} "
                f" WHERE LOWER(name) = '{utils_giswater.getWidgetText(self.dlg_plan_psector, self.dlg_plan_psector.name)}'")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         if not rows:
             if self.dlg_plan_psector.name.text() != '':
                 self.enable_tabs(True)
@@ -826,13 +823,13 @@ class ManageNewPsector(ParentManage):
     def delete_psector_selector(self, tablename):
         sql = (f"DELETE FROM {tablename}"
                f" WHERE cur_user = current_user;")
-        self.controller.execute_sql(sql)
+        self.controller.execute_sql(sql, commit=True)
 
 
     def insert_psector_selector(self, tablename, field, value):
         sql = (f"INSERT INTO {tablename} ({field}, cur_user) "
                f"VALUES ('{value}', current_user);")
-        self.controller.execute_sql(sql)
+        self.controller.execute_sql(sql, commit=True)
 
 
     def check_tab_position(self):
@@ -874,7 +871,7 @@ class ManageNewPsector(ParentManage):
         index = self.dlg_plan_psector.psector_type.itemData(self.dlg_plan_psector.psector_type.currentIndex())
         sql = (f"SELECT result_type, name FROM {table_name}"
                f" WHERE result_type = {index[0]} ORDER BY name DESC")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         if not rows:
             return False
 
@@ -898,7 +895,7 @@ class ManageNewPsector(ParentManage):
         if where:
             sql += where
         sql += f" ORDER BY {field_name}"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         if not rows:
             return
         combo.blockSignals(True)
@@ -936,7 +933,7 @@ class ManageNewPsector(ParentManage):
             self.reset_model_psector("gully")
         self.reset_model_psector("other")
         self.close_dialog(self.dlg_plan_psector)
-        self.hide_generic_layers(excluded_layers=["v_edit_element"])
+        self.hide_generic_layers()
         self.disconnect_snapping()
         self.disconnect_signal_selection_changed()
 
@@ -956,7 +953,7 @@ class ManageNewPsector(ParentManage):
 
         sql = (f"SELECT name FROM {self.plan_om}_psector"
                f" WHERE name = '{psector_name}'")
-        row = self.controller.get_row(sql)
+        row = self.controller.get_row(sql, commit=True)
         if row is None:
             return False
         return True
@@ -987,7 +984,7 @@ class ManageNewPsector(ParentManage):
                f"WHERE table_name = {viewname} "
                f"AND table_schema = '" + self.schema_name.replace('"', '') + "' "
                f"ORDER BY ordinal_position;")
-        rows = self.controller.get_rows(sql, log_sql=True)
+        rows = self.controller.get_rows(sql, log_sql=True, commit=True)
         if not rows or rows is None or rows == '':
             message = "Check fields from table or view"
             self.controller.show_warning(message, parameter=viewname)
@@ -1054,7 +1051,7 @@ class ManageNewPsector(ParentManage):
 
         if not self.update:
             sql += " RETURNING psector_id;"
-            new_psector_id = self.controller.execute_returning(sql, search_audit=False, log_sql=True)
+            new_psector_id = self.controller.execute_returning(sql, search_audit=False, log_sql=True, commit=True)
             utils_giswater.setText(self.dlg_plan_psector, self.dlg_plan_psector.psector_id, str(new_psector_id[0]))
             if new_psector_id and self.plan_om == 'plan':
                 row = self.controller.get_config('psector_vdefault')
@@ -1062,7 +1059,8 @@ class ManageNewPsector(ParentManage):
                     sql = (f"UPDATE config_param_user "
                            f" SET value = $${new_psector_id[0]}$$ "
                            f" WHERE parameter = 'psector_vdefault'"
-                           f" AND cur_user=current_user; ")
+                           f" AND cur_user=current_user; "
+                    )
                 else:
                     sql = (f"INSERT INTO config_param_user (parameter, value, cur_user) "
                            f" VALUES ('psector_vdefault', '{new_psector_id[0]}', current_user);")
@@ -1154,7 +1152,7 @@ class ManageNewPsector(ParentManage):
                    f" WHERE {id_des} = '{expl_id[i]}'"
                    f" AND psector_id = '{psector_id}'")
 
-            row = self.controller.get_row(sql)
+            row = self.controller.get_row(sql, commit=True)
             if row is not None:
                 # if exist - show warning
                 message = "Id already selected"
@@ -1279,7 +1277,7 @@ class ManageNewPsector(ParentManage):
 
 
     def document_insert(self):
-        """ Insert a document related to the current visit """
+        """ Insert a docmet related to the current visit """
         doc_id = self.doc_id.text()
         psector_id = self.psector_id.text()
         if not doc_id:
@@ -1297,8 +1295,8 @@ class ManageNewPsector(ParentManage):
                f" WHERE doc_id = '{doc_id}' AND psector_id = '{psector_id}'")
         row = self.controller.get_row(sql, commit=self.autocommit)
         if row:
-            msg = "Document already exist"
-            self.controller.show_warning(msg)
+            message = "Document already exist"
+            self.controller.show_warning(message)
             return
 
         # Insert into new table
@@ -1312,6 +1310,37 @@ class ManageNewPsector(ParentManage):
         self.dlg_plan_psector.tbl_document.model().select()
 
 
+    def document_delete(self):
+        """ Delete record from selected rows in tbl_document """
+
+        # Get selected rows. 0 is the column of the pk 0 'id'
+        selected_list = self.tbl_document.selectionModel().selectedRows(0)
+        if len(selected_list) == 0:
+            message = "Any record selected"
+            self.controller.show_info_box(message)
+            return
+
+        selected_id = []
+        for index in selected_list:
+            doc_id = index.data()
+            selected_id.append(str(doc_id))
+        message = "Are you sure you want to delete these records?"
+        title = "Delete records"
+        answer = self.controller.ask_question(message, title, ','.join(selected_id))
+        if answer:
+            sql = (f"DELETE FROM doc_x_psector"
+                   f" WHERE id IN ({','.join(selected_id)})")
+            status = self.controller.execute_sql(sql)
+            if not status:
+                message = "Error deleting data"
+                self.controller.show_warning(message)
+                return
+            else:
+                message = "Event deleted"
+                self.controller.show_info(message)
+                self.dlg_plan_psector.tbl_document.model().select()
+
+
     def manage_document(self, qtable):
         """ Access GUI to manage documents e.g Execute action of button 34 """
         
@@ -1321,6 +1350,53 @@ class ManageNewPsector(ParentManage):
         dlg_docman = manage_document.manage_document(tablename='psector', qtable=qtable, item_id=psector_id)
         dlg_docman.btn_accept.clicked.connect(partial(self.set_completer_object, dlg_docman, 'doc'))
         utils_giswater.remove_tab_by_tabName(dlg_docman.tabWidget, 'tab_rel')
+
+
+    def document_open(self):
+        """ Open selected document """
+
+        # Get selected rows
+        field_index = self.tbl_document.model().fieldIndex('path')
+        selected_list = self.dlg_plan_psector.tbl_document.selectionModel().selectedRows(field_index)
+        if not selected_list:
+            message = "Any record selected"
+            self.controller.show_info_box(message)
+            return
+        elif len(selected_list) > 1:
+            message = "More then one document selected. Select just one document."
+            self.controller.show_warning(message)
+            return
+
+        path = selected_list[0].data()
+        # Check if file exist
+        if os.path.exists(path):
+            # Open the document
+            if sys.platform == "win32":
+                os.startfile(path)
+            else:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.call([opener, path])
+        else:
+            webbrowser.open(path)
+
+
+    def set_completer(self):
+        """ Set autocompleter """
+
+        # Adding auto-completion to a QLineEdit - document_id
+        self.completer = QCompleter()
+        self.dlg_plan_psector.doc_id.setCompleter(self.completer)
+        model = QStringListModel()
+
+        sql = "SELECT DISTINCT(id) FROM v_ui_document"
+        rows = self.controller.get_rows(sql, commit=self.autocommit)
+        values = []
+        if rows:
+            for row in rows:
+                values.append(str(row[0]))
+
+        model.setStringList(values)
+        self.completer.setModel(model)
 
 
     def show_status_warning(self):

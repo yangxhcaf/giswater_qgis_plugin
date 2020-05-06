@@ -22,8 +22,6 @@ from qgis.gui import QgsVertexMarker
 from qgis.PyQt.QtCore import Qt
 
 from .parent import ParentMapTool
-from ..actions.add_layer import AddLayer
-from ..ui_manager import BasicInfoUi
 
 
 class MoveNodeMapTool(ParentMapTool):
@@ -46,18 +44,21 @@ class MoveNodeMapTool(ParentMapTool):
         the_geom = f"ST_GeomFromText('POINT({point.x()} {point.y()})', {srid})"
         sql = (f"UPDATE node SET the_geom = {the_geom} "
                f"WHERE node_id = '{node_id}'")
-        status = self.controller.execute_sql(sql)
+        status = self.controller.execute_sql(sql) 
         if status:
-            feature_id = f'"id":["{node_id}"]'
-            body = self.create_body(feature=feature_id)
-            result = self.controller.get_json('gw_fct_arc_divide', body)
-            if not result: return
-            if 'hideForm' not in result['body']['actions'] or not result['body']['actions']['hideForm']:
-                self.dlg_binfo = BasicInfoUi()
-                self.dlg_binfo.btn_accept.hide()
-                self.dlg_binfo.btn_close.clicked.connect(lambda: self.dlg_binfo.close())
-                text_result = self.populate_info_text(self.dlg_binfo, result['body']['data'], False, True, 1)
-                self.dlg_binfo.exec()
+            # Execute SQL function and show result to the user
+            function_name = "gw_fct_arc_divide"
+            row = self.controller.check_function(function_name)
+            if not row:
+                function_name = "gw_fct_node2arc"
+                row = self.controller.check_function(function_name)
+                if not row:
+                    message = "Database function not found"
+                    self.controller.show_warning(message, parameter=function_name)
+                    return
+
+            sql = f"SELECT {function_name} ('{node_id}');"
+            self.controller.execute_sql(sql, commit=True)
 
         else:
             message = "Move node: Error updating geometry"
@@ -67,8 +68,8 @@ class MoveNodeMapTool(ParentMapTool):
         self.reset()
                                 
         # Refresh map canvas
-        self.refresh_map_canvas()
-
+        self.refresh_map_canvas()  
+        
         # Deactivate map tool
         self.deactivate()
         self.set_action_pan()
@@ -150,8 +151,8 @@ class MoveNodeMapTool(ParentMapTool):
             # Make sure active layer is 'v_edit_node'
             cur_layer = self.iface.activeLayer()
             if cur_layer != self.layer_node:
-                self.iface.setActiveLayer(self.layer_node)
-            self.add_layer = AddLayer(self.iface, self.settings, self.controller, self.plugin_dir)
+                self.iface.setActiveLayer(self.layer_node)             
+            
             # Snapping
             result = self.snapper_manager.snap_to_current_layer(event_point)
             if self.snapper_manager.result_is_valid():
@@ -231,8 +232,8 @@ class MoveNodeMapTool(ParentMapTool):
 
                 # Move selected node to the released point
                 # Show message before executing
-                message = ("The procedure will delete features on database unless it is a node that doesn't divide arcs.\n"
-                           "Please ensure that features has no undelete value on true.\n"
+                message = ("The procedure will delete features on database unless it is a node that doesn't divide arc. "
+                           "Please ensure that features has no undelete value on true. "
                            "On the other hand you must know that traceability table will storage precedent information.")
                 title = "Info"
                 answer = self.controller.ask_question(message, title)

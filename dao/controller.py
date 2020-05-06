@@ -8,8 +8,8 @@ or (at your option) any later version.
 from qgis.core import QgsMessageLog, QgsCredentials, QgsExpressionContextUtils, QgsProject, QgsDataSourceUri
 from qgis.PyQt.QtCore import QCoreApplication, QRegExp, QSettings, Qt, QTranslator
 from qgis.PyQt.QtGui import QTextCharFormat, QFont
+from qgis.PyQt.QtWidgets import QCheckBox, QLabel, QMessageBox, QPushButton, QTabWidget, QToolBox
 from qgis.PyQt.QtSql import QSqlDatabase
-from qgis.PyQt.QtWidgets import QCheckBox, QGroupBox, QLabel, QMessageBox, QPushButton, QTabWidget, QToolBox
 
 import configparser
 import json
@@ -17,15 +17,12 @@ import os
 
 from collections import OrderedDict
 from functools import partial
-import inspect
-import traceback
-import sys
 
 from .pg_dao import PgDao
 from .logger import Logger
 from .. import utils_giswater
 from .. import sys_manager
-from ..ui_manager import BasicInfoUi
+from ..ui_manager import BasicInfo
 
 
 class DaoController(object):
@@ -48,8 +45,6 @@ class DaoController(object):
         self.current_user = None
         self.min_log_level = 20
         self.min_message_level = 0
-        self.last_error = None
-        self.user = None
         self.user_settings = None
         self.user_settings_path = None
 
@@ -80,7 +75,6 @@ class DaoController(object):
 
     def set_plugin_dir(self, plugin_dir):
         self.plugin_dir = plugin_dir
-        self.log_info(f"Plugin folder: {self.plugin_dir}")
         
         
     def set_logger(self, logger_name=None):
@@ -115,25 +109,17 @@ class DaoController(object):
                 
     def tr(self, message, context_name=None):
         """ Translate @message looking it in @context_name """
-
+        
         if context_name is None:
             context_name = self.plugin_name
-
-        value = None
-        try:
-            value = QCoreApplication.translate(context_name, message)
-        except TypeError:
-            value = QCoreApplication.translate(context_name, str(message))
-        finally:
-            # If not translation has been found, check into 'ui_message' context
-            if value == message:
-                value = QCoreApplication.translate('ui_message', message)
-
+        value = QCoreApplication.translate(context_name, message)
+        # If not translation has been found, check into 'ui_message' context
+        if value == message:
+            value = QCoreApplication.translate('ui_message', message)
         return value                            
     
         
     def plugin_settings_value(self, key, default_value=""):
-
         key = self.plugin_name + "/" + key
         value = self.qgis_settings.value(key, default_value)
         return value    
@@ -174,43 +160,22 @@ class DaoController(object):
         return True, not_version
     
 
-    def check_user_settings(self, parameter, value=None, section='system'):
-        """ Check if @section and @parameter exists in user settings file. If not add them with @value """
+    def get_sslmode(self):
+        """ Get sslmode for database connection """
 
-        # Check if @section exists
-        if not self.user_settings.has_section(section):
-            self.user_settings.add_section(section)
-            self.user_settings.set(section, parameter, value)
+        sslmode = 'disable'
+        if self.user_settings is None:
+            return sslmode
+
+        if not self.user_settings.has_section('system'):
+            self.user_settings.add_section('system')
+            self.user_settings.set('system', 'sslmode', sslmode)
             self.save_user_settings()
 
-        # Check if @parameter exists
-        if not self.user_settings.has_option(section, parameter):
-            self.user_settings.set(section, parameter, value)
-            self.save_user_settings()
+        sslmode = self.user_settings.get('system', 'sslmode').lower()
+        self.log_info(f"get_sslmode: {sslmode}")
 
-
-    def get_user_setting_value(self, parameter, default_value=None, section='system'):
-        """ Get value from user settings file of selected @parameter located in @section """
-
-        value = default_value
-        if self.user_settings is None:
-            return value
-
-        self.check_user_settings(parameter, value)
-        value = self.user_settings.get(section, parameter).lower()
-
-        return value
-
-
-    def set_user_settings_value(self, parameter, value, section='system'):
-        """ Set @value from user settings file of selected @parameter located in @section """
-
-        if self.user_settings is None:
-            return value
-
-        self.check_user_settings(parameter, value)
-        self.user_settings.set(section, parameter, value)
-        self.save_user_settings()
+        return sslmode
 
 
     def save_user_settings(self):
@@ -261,7 +226,7 @@ class DaoController(object):
             return None, not_version
 
         self.manage_user_config_file()
-        sslmode = self.get_user_setting_value('sslmode', 'disable')
+        sslmode = self.get_sslmode()
 
         if layer:
             not_version = False
@@ -296,7 +261,7 @@ class DaoController(object):
                 credentials['password'] = settings.value('password')
                 credentials['sslmode'] = sslmode
                 settings.endGroup()
-                status, credentials = self.connect_to_database_credentials(credentials, max_attempts=0)
+                status, credentials = self.connect_to_database_credentials(credentials)
                 if not status:
                     self.log_warning("Error connecting to database (settings)")
                     self.last_error = self.tr("Error connecting to database")
@@ -342,8 +307,7 @@ class DaoController(object):
         # We need to create this connections for Table Views
         self.db = QSqlDatabase.addDatabase("QPSQL")
         self.db.setHostName(host)
-        if port != '':
-            self.db.setPort(int(port))
+        self.db.setPort(int(port))
         self.db.setDatabaseName(db)
         self.db.setUserName(user)
         self.db.setPassword(pwd)
@@ -450,7 +414,7 @@ class DaoController(object):
         return self.postgis_version           
         
     
-    def show_message(self, text, message_level=1, duration=10, context_name=None, parameter=None, title=""):
+    def show_message(self, text, message_level=1, duration=5, context_name=None, parameter=None):
         """ Show message to the user with selected message level
         message_level: {INFO = 0(blue), WARNING = 1(yellow), CRITICAL = 2(red), SUCCESS = 3(green)} """
         
@@ -458,33 +422,30 @@ class DaoController(object):
         if text:        
             msg = self.tr(text, context_name)
             if parameter:
-                msg += ": " + str(parameter)
-        try:
-            self.iface.messageBar().pushMessage(title, msg, message_level, duration)
-        except AttributeError:
-            pass
+                msg += ": " + str(parameter)             
+        self.iface.messageBar().pushMessage("", msg, message_level, duration)
             
 
-    def show_info(self, text, duration=10, context_name=None, parameter=None, logger_file=True, title=""):
+    def show_info(self, text, duration=5, context_name=None, parameter=None, logger_file=True):
         """ Show information message to the user """
 
-        self.show_message(text, 0, duration, context_name, parameter, title)
+        self.show_message(text, 0, duration, context_name, parameter)
         if self.logger and logger_file:
             self.logger.info(text)            
 
 
-    def show_warning(self, text, duration=10, context_name=None, parameter=None, logger_file=True, title=""):
+    def show_warning(self, text, duration=5, context_name=None, parameter=None, logger_file=True):
         """ Show warning message to the user """
 
-        self.show_message(text, 1, duration, context_name, parameter, title)
+        self.show_message(text, 1, duration, context_name, parameter)
         if self.logger and logger_file:
             self.logger.warning(text)
 
 
-    def show_critical(self, text, duration=10, context_name=None, parameter=None, logger_file=True, title=""):
+    def show_critical(self, text, duration=5, context_name=None, parameter=None, logger_file=True):
         """ Show warning message to the user """
 
-        self.show_message(text, 2, duration, context_name, parameter, title)
+        self.show_message(text, 2, duration, context_name, parameter)
         if self.logger and logger_file:
             self.logger.critical(text)
         
@@ -593,7 +554,7 @@ class DaoController(object):
         return sql
 
         
-    def get_row(self, sql, log_info=True, log_sql=False, commit=True, params=None):
+    def get_row(self, sql, log_info=True, log_sql=False, commit=False, params=None):
         """ Execute SQL. Check its result in log tables, and show it to the user """
         
         sql = self.get_sql(sql, log_sql, params)
@@ -602,14 +563,17 @@ class DaoController(object):
         if not row:
             # Check if any error has been raised
             if self.last_error:
-                self.manage_exception_db(self.last_error, sql)
+                text = "Undefined error" 
+                if '-1' in self.log_codes:   
+                    text = self.log_codes[-1]
+                self.show_warning_detail(text, str(self.last_error))
             elif self.last_error is None and log_info:
                 self.log_info("Any record found", parameter=sql, stack_level_increase=1)
           
         return row
 
 
-    def get_rows(self, sql, log_info=True, log_sql=False, commit=True, params=None, add_empty_row=False):
+    def get_rows(self, sql, log_info=True, log_sql=False, commit=False, params=None, add_empty_row=False):
         """ Execute SQL. Check its result in log tables, and show it to the user """
 
         sql = self.get_sql(sql, log_sql, params)
@@ -619,7 +583,10 @@ class DaoController(object):
         if not rows2:
             # Check if any error has been raised
             if self.last_error:
-                self.manage_exception_db(self.last_error, sql)
+                text = "Undefined error"
+                if '-1' in self.log_codes:
+                    text = self.log_codes[-1]
+                self.show_warning_detail(text, str(self.dao.last_error))
             elif self.last_error is None and log_info:
                 self.log_info("Any record found", parameter=sql, stack_level_increase=1)
         else:
@@ -642,7 +609,10 @@ class DaoController(object):
         if not result:
             if log_error:
                 self.log_info(sql, stack_level_increase=1)
-            self.manage_exception_db(self.last_error, sql)
+            text = "Undefined error"
+            if '-1' in self.log_codes:
+                text = self.log_codes[-1]
+            self.show_warning_detail(text, str(self.dao.last_error))
             return False
         else:
             if search_audit:
@@ -662,7 +632,10 @@ class DaoController(object):
         if not value:
             if log_error:
                 self.log_info(sql, stack_level_increase=1)
-            self.manage_exception_db(self.last_error, sql)
+            text = "Undefined error"
+            if '-1' in self.log_codes:
+                text = self.log_codes[-1]
+            self.show_warning_detail(text, str(self.dao.last_error))
             return False
         else:
             if search_audit:
@@ -719,11 +692,13 @@ class DaoController(object):
         result = self.dao.execute_sql(sql, commit)
         self.last_error = self.dao.last_error         
         if not result:
-            # Check if any error has been raised
-            if self.last_error:
-                self.manage_exception_db(self.last_error, sql)
+            text = "Undefined error"
+            if '-1' in self.log_codes:
+                text = self.log_codes[-1]
+            self.show_warning_detail(text, str(self.dao.last_error))
+            return False
 
-        return result
+        return True
                
             
     def execute_upsert(self, tablename, unique_field, unique_value, fields, values, commit=True):
@@ -769,39 +744,47 @@ class DaoController(object):
         result = self.dao.execute_sql(sql, commit)
         self.last_error = self.dao.last_error         
         if not result:
-            # Check if any error has been raised
-            if self.last_error:
-                self.manage_exception_db(self.last_error, sql)
+            text = "Undefined error"
+            if '-1' in self.log_codes:
+                text = self.log_codes[-1]
+            self.show_warning_detail(text, str(self.dao.last_error))
+            return False
 
-        return result
+        return True
 
 
-    def get_json(self, function_name, parameters=None, schema_name=None, commit=True, log_sql=False):
+    def execute_api_function(self, function_name, body):
         """ Manage execution API function
         :param function_name: Name of function to call (text)
-        :param body: Parameter for function (json)
-        :param commit: Commit sql (bool)
-        :param log_sql: Show query in qgis log (bool)
+        :param body: Parameter for function (json::text)
         :return: Response of the function executed (json)
         """
 
         # Check if function exists
-        row = self.check_function(function_name, schema_name, commit)
+        row = self.check_function(function_name)
         if not row:
             self.show_warning("Function not found in database", parameter=function_name)
             return None
-        if schema_name: sql = f"SELECT {schema_name}.{function_name}("
-        else: sql = f"SELECT {function_name}("
-        if parameters: sql += f"{parameters}"
-        sql += f");"
 
-        row = self.get_row(sql, commit=commit, log_sql=log_sql)
-        if not row or not row[0]:
+        sql = f"SELECT {function_name} ($${{{body}}}$$)::text;"
+        row = self.get_row(sql, log_sql=True)
+        if not row:
+            self.show_critical("NOT ROW FOR", parameter=sql)
             return None
 
-        json_result = row[0]
+        json_result = json.loads(row[0], object_pairs_hook=OrderedDict)
+
         if 'status' in json_result and json_result['status'] == 'Failed':
-            self.manage_exception_api(json_result, sql)
+            try:
+                title = "Execute failed."
+                msg = f"<b>Error: </b>{json_result['SQLERR']}<br>"
+                msg += f"<b>Context: </b>{json_result['SQLCONTEXT']} <br>"
+            except KeyError as e:
+                title = "Key on returned json from ddbb is missed."
+                msg = f"<b>Key: </b>{e}<br>"
+                msg += f"<b>Python file: </b>{__name__} <br>"
+                msg += f"<b>Python function: </b>{self.execute_api_function.__name__} <br>"
+            self.show_exceptions_msg(title, msg)
             return False
 
         return json_result
@@ -834,31 +817,8 @@ class DaoController(object):
                 pass
             
         return True
-
-
-    def translate_tooltip(self, context_name, widget, idx=None):
-        """ Translate tooltips widgets of the form to current language
-            If we find a translation, it will be put
-            If the object does not have a tooltip we will put the object text itself as a tooltip
-        """
-
-        if type(widget) is QTabWidget:
-            widget_name = widget.widget(idx).objectName()
-            tooltip = self.tr(f'tooltip_{widget_name}', context_name)
-            if tooltip != f'tooltip_{widget_name}':
-                widget.setTabToolTip(idx, tooltip)
-            elif widget.toolTip() == "":
-                widget.setTabToolTip(idx, widget.tabText(idx))
-        else:
-            widget_name = widget.objectName()
-            tooltip = self.tr(f'tooltip_{widget_name}', context_name)
-            if tooltip != f'tooltip_{widget_name}':
-                widget.setToolTip(tooltip)
-            elif widget.toolTip() == "":
-                if type(widget) is QGroupBox: widget.setToolTip(widget.title())
-                else: widget.setToolTip(widget.text())
-
-
+        
+        
     def translate_form(self, dialog, context_name):
         """ Translate widgets of the form to current language """
         
@@ -876,12 +836,7 @@ class DaoController(object):
         widget_list = dialog.findChildren(QTabWidget)
         for widget in widget_list:
             self.translate_widget(context_name, widget)
-
-        # Get objects of type: QTabWidget
-        widget_list = dialog.findChildren(QGroupBox)
-        for widget in widget_list:
-            self.translate_widget(context_name, widget)
-
+         
         # Translate title of the form   
         text = self.tr('title', context_name)
         dialog.setWindowTitle(text)
@@ -889,7 +844,7 @@ class DaoController(object):
             
     def translate_widget(self, context_name, widget):
         """ Translate widget text """
-
+        
         if not widget:
             return
 
@@ -906,7 +861,7 @@ class DaoController(object):
                         text = self.tr(widget_text, context_name)
                         if text != widget_text:
                             widget.setTabText(i, text)
-                    self.translate_tooltip(context_name, widget, i)
+
             elif type(widget) is QToolBox:
                 num_tabs = widget.count()
                 for i in range(0, num_tabs):
@@ -919,18 +874,6 @@ class DaoController(object):
                         text = self.tr(widget_text, context_name)
                         if text != widget_text:
                             widget.setItemText(i, text)
-                    self.translate_tooltip(context_name, widget.widget(i))
-            elif  type(widget) is QGroupBox:
-                widget_name = widget.objectName()
-                text = self.tr(widget_name, context_name)
-                if text != widget_name:
-                    widget.setTitle(text)
-                else:
-                    widget_title = widget.title()
-                    text = self.tr(widget_title, context_name)
-                    if text != widget_title:
-                        widget.setTitle(text)
-                self.translate_tooltip(context_name, widget)
             else:
                 widget_name = widget.objectName()
                 text = self.tr(widget_name, context_name)
@@ -941,10 +884,7 @@ class DaoController(object):
                     text = self.tr(widget_text, context_name)
                     if text != widget_text:
                         widget.setText(text)
-                self.translate_tooltip(context_name, widget)
-
-        except Exception as e:
-            self.log_info(f"{widget_name} --> {type(e).__name__} --> {e}")
+        except:
             pass
         
         
@@ -1096,6 +1036,7 @@ class DaoController(object):
             tab_name = self.plugin_name
 
         if message_level >= self.min_message_level:
+            msg = "QGIS: " + str(msg)
             QgsMessageLog.logMessage(msg, tab_name, message_level)
 
         return msg
@@ -1165,58 +1106,64 @@ class DaoController(object):
         else:
             if log_info:
                 self.log_info("Locale not found", parameter=locale_path)
-            
-                    
-    def manage_translation(self, locale_name, dialog=None, log_info=False):
-        """ Manage locale and corresponding 'i18n' file """ 
-        
-        # Get locale of QGIS application
+
+
+    def get_locale(self):
+        """ Get locale of QGIS application """
+
+        locale = "en"
         try:
             locale = QSettings().value('locale/userLocale').lower()
         except AttributeError:
-            locale = "en"
+            pass
+        finally:
+            if locale == 'es_es' or locale == 'es':
+                locale = 'es'
+            elif locale == 'es_ca':
+                locale = 'ca'
+            elif locale == 'en_us':
+                locale = 'en'
+            return locale
 
-        if locale == 'es_es':
-            locale = 'es'
-        elif locale == 'es_ca':
-            locale = 'ca'
-        elif locale == 'en_us':
-            locale = 'en'
-
+                    
+    def manage_translation(self, locale_name, dialog=None, log_info=False):  
+        """ Manage locale and corresponding 'i18n' file """ 
+        
+        # Get locale of QGIS application
+        locale = self.get_locale()
+            
         # If user locale file not found, set English one by default
-        locale_path = os.path.join(self.plugin_dir, 'i18n', f'giswater_{locale}.qm')
+        locale_path = os.path.join(self.plugin_dir, 'i18n', locale_name+'_{}.qm'.format(locale))
         if not os.path.exists(locale_path):
             if log_info:
                 self.log_info("Locale not found", parameter=locale_path)
             locale_default = 'en'
-            locale_path = os.path.join(self.plugin_dir, 'i18n', f'giswater_{locale_default}.qm')
+            locale_path = os.path.join(self.plugin_dir, 'i18n', locale_name+'_{}.qm'.format(locale_default))
             # If English locale file not found, exit function
             # It means that probably that form has not been translated yet
             if not os.path.exists(locale_path):
-                if log_info:
+                if log_info:            
                     self.log_info("Locale not found", parameter=locale_path)
-                return
-
+                return            
+        
         # Add translation file
         self.add_translator(locale_path) 
         
         # If dialog is set, then translate form
         if dialog:
-            self.translate_form(dialog, locale_name)
-
-
+            self.translate_form(dialog, locale_name)                              
+      
+      
     def get_project_type(self, schemaname=None):
         """ Get water software from table 'version' """
 
         if schemaname is None:
             schemaname = self.schema_name
             if schemaname is None:
-                self.get_layer_source_from_credentials()
-                schemaname = self.schema_name
-                if schemaname is None:
-                    return None
+                return None
 
         schemaname = schemaname.replace('"', '')
+
         project_type = None
         tablename = "version"
         exists = self.check_table(tablename)
@@ -1224,7 +1171,7 @@ class DaoController(object):
             sql = ("SELECT lower(wsoftware) "
                    "FROM " + schemaname + "." + tablename + " "
                    "ORDER BY id ASC LIMIT 1")
-            row = self.get_row(sql)
+            row = self.get_row(sql, commit=True)
             if row:
                 project_type = row[0]
         else:
@@ -1262,22 +1209,22 @@ class DaoController(object):
         schemaname = schemaname.replace('"', '')
         sql = "SELECT nspname FROM pg_namespace WHERE nspname = %s"
         params = [schemaname]
-        row = self.get_row(sql, params=params)
+        row = self.get_row(sql, commit=True, params=params)
         return row
     
     
-    def check_function(self, function_name, schema_name=None, commit=True):
+    def check_function(self, functionname, schemaname=None):
         """ Check if @function_name exists in selected schema """
 
-        if schema_name is None:
-            schema_name = self.schema_name
+        if schemaname is None:
+            schemaname = self.schema_name
 
-        schema_name = schema_name.replace('"', '')
+        schemaname = schemaname.replace('"', '')
         sql = ("SELECT routine_name FROM information_schema.routines "
                "WHERE lower(routine_schema) = %s "
                "AND lower(routine_name) = %s ")
-        params = [schema_name, function_name]
-        row = self.get_row(sql, params=params, commit=commit)
+        params = [schemaname, functionname]
+        row = self.get_row(sql, commit=True, params=params)
         return row
     
     
@@ -1291,7 +1238,7 @@ class DaoController(object):
         sql = ("SELECT * FROM pg_tables "
                "WHERE schemaname = %s AND tablename = %s ")
         params = [schemaname, tablename]
-        row = self.get_row(sql, log_info=False, params=params)
+        row = self.get_row(sql, log_info=False, commit=True, params=params)
         return row
 
 
@@ -1305,7 +1252,7 @@ class DaoController(object):
         sql = ("SELECT * FROM pg_views "
                "WHERE schemaname = %s AND viewname = %s ")
         params = [schemaname, viewname]
-        row = self.get_row(sql, log_info=False, params=params)
+        row = self.get_row(sql, log_info=False, commit=True, params=params)
         return row
     
     
@@ -1319,7 +1266,7 @@ class DaoController(object):
         sql = ("SELECT * FROM information_schema.columns "
                "WHERE table_schema = %s AND table_name = %s AND column_name = %s ")
         params = [schemaname, tablename, columname]
-        row = self.get_row(sql, log_info=False, params=params)
+        row = self.get_row(sql, log_info=False, commit=True, params=params)
         return row
     
 
@@ -1329,10 +1276,10 @@ class DaoController(object):
         list_items = []        
         sql = ("SELECT child_layer "
                "FROM cat_feature "
-               "WHERE upper(feature_type) = '" + geom_type.upper() + "' "
-               "UNION SELECT DISTINCT parent_layer "
+               "WHERE upper(feature_type) = '" + geom_type.upper() + "'"
+			   "UNION SELECT DISTINCT parent_layer "
                "FROM cat_feature "
-               "WHERE upper(feature_type) = '" + geom_type.upper() + "';")
+               "WHERE upper(feature_type) = '" + geom_type.upper() + "'")
         rows = self.get_rows(sql, log_sql=True)
         if rows:
             for row in rows:
@@ -1361,7 +1308,7 @@ class DaoController(object):
             username = self.user
 
         sql = ("SELECT pg_has_role('" + username + "', '" + role_name + "', 'MEMBER');")
-        row = self.get_row(sql)
+        row = self.get_row(sql, commit=True)
         if row:
             return row[0]
         else:
@@ -1499,10 +1446,7 @@ class DaoController(object):
         """ Set layer visible """
 
         if layer:
-            if visible:
-                QgsProject.instance().layerTreeRoot().findLayer(layer.id()).setItemVisibilityCheckedParentRecursive(visible)
-            else:
-                QgsProject.instance().layerTreeRoot().findLayer(layer.id()).setItemVisibilityChecked(visible)
+            QgsProject.instance().layerTreeRoot().findLayer(layer.id()).setItemVisibilityChecked(visible)
 
 
     def get_layers(self):
@@ -1513,10 +1457,10 @@ class DaoController(object):
         return layers
 
 
-    def set_search_path(self, schema_name):
+    def set_search_path(self, dbname, schema_name):
         """ Set parameter search_path for current QGIS project """
 
-        sql = f"SET search_path = {schema_name}, public;"
+        sql = ("SET search_path = " + str(schema_name) + ", public;")
         self.execute_sql(sql, log_sql=True)
 
 
@@ -1584,20 +1528,18 @@ class DaoController(object):
 
 
     def get_config(self, parameter='', columns='value', table='config_param_user', sql_added=None, log_info=True):
-
         sql = f"SELECT {columns} FROM {table} WHERE parameter = '{parameter}' "
         if sql_added:
             sql += sql_added
         if table == 'config_param_user':
             sql += " AND cur_user = current_user"
         sql += ";"
-        row = self.get_row(sql, log_info=log_info)
+        row = self.get_row(sql, commit=True, log_info=log_info)
         return row
 
 
     def indexing_spatial_layer(self, layer_name):
         """ Force reload dataProvider of layer """
-
         layer = self.get_layer_by_tablename(layer_name)
         if layer:
             layer.dataProvider().forceReload()
@@ -1664,6 +1606,7 @@ class DaoController(object):
         :param pattern: Text to find used as pattern for QRegExp (String)
         :return:
         """
+
         if not pattern:
             pattern = "File\sname:|Function\sname:|Line\snumber:|SQL:|Detail:|Context:"
         cursor = widget.textCursor()
@@ -1684,7 +1627,6 @@ class DaoController(object):
 
             # Move to the next match
             index = regex.indexIn(widget.toPlainText(), pos)
-
 
 
     def manage_exception_api(self, json_result, sql=None, stack_level=2, stack_level_increase=0):
@@ -1737,7 +1679,7 @@ class DaoController(object):
     def show_exceptions_msg(self, title=None, msg="", window_title="Information about exception"):
         """ Show exception message in dialog """
 
-        self.dlg_info = BasicInfoUi()
+        self.dlg_info = BasicInfo()
         self.dlg_info.btn_accept.setVisible(False)
         self.dlg_info.btn_close.clicked.connect(lambda: self.dlg_info.close())
         self.dlg_info.setWindowTitle(window_title)

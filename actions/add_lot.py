@@ -6,7 +6,9 @@ General Public License as published by the Free Software Foundation, either vers
 or (at your option) any later version.
 """
 from qgis.core import QgsPointXY
-from qgis.PyQt.QtCore import QStringListModel, QDate, QSortFilterProxyModel, Qt, QDateTime
+from qgis.PyQt.QtCore import QStringListModel
+
+from qgis.PyQt.QtCore import QDate, QSortFilterProxyModel, Qt, QDateTime
 from qgis.PyQt.QtGui import QColor, QStandardItem, QStandardItemModel
 from qgis.PyQt.QtSql import QSqlTableModel
 from qgis.PyQt.QtWidgets import QAbstractItemView, QAction, QCheckBox, QComboBox, QCompleter, QFileDialog, QHBoxLayout
@@ -24,7 +26,7 @@ import webbrowser
 from .. import utils_giswater
 from .manage_visit import ManageVisit
 from .parent_manage import ParentManage
-from ..ui_manager import LotUi
+from ..ui_manager import AddLot
 from ..ui_manager import BasicTable
 from ..ui_manager import LotManagement
 from ..ui_manager import Multirow_selector
@@ -66,7 +68,7 @@ class AddNewLot(ParentManage):
         if self.controller.get_project_type() == 'ud':
             self.layers['gully'] = [self.controller.get_layer_by_tablename('v_edit_gully')]
 
-        self.dlg_lot = LotUi()
+        self.dlg_lot = AddLot()
         self.load_settings(self.dlg_lot)
         self.load_user_values(self.dlg_lot)
         self.dropdown = self.dlg_lot.findChild(QToolButton, 'action_selector')
@@ -187,7 +189,7 @@ class AddNewLot(ParentManage):
         if table_name is not None:
 
             sql = f"SELECT column_id FROM config_client_forms WHERE location_type = 'tbl_visit' AND status IS NOT TRUE AND table_id = '{table_name}'"
-            rows = self.controller.get_rows(sql)
+            rows = self.controller.get_rows(sql, commit=True)
             result_visit = []
             if rows is not None:
                 for row in rows:
@@ -199,7 +201,7 @@ class AddNewLot(ParentManage):
 
         # Get columns to ignore for tab_relations when export csv
         sql = f"SELECT column_id FROM config_client_forms WHERE location_type = 'lot' AND status IS NOT TRUE AND table_id = 've_lot_x_{self.geom_type}'"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         result_relation = []
         if rows is not None:
             for row in rows:
@@ -279,7 +281,7 @@ class AddNewLot(ParentManage):
         visit_id = index.sibling(row, column_index).data()
 
         sql = ("SELECT value FROM om_visit_event_photo WHERE visit_id = " + visit_id)
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         # TODO:: Open manage photos when visit have more than one
         for row in rows:
             webbrowser.open(row[0])
@@ -322,7 +324,7 @@ class AddNewLot(ParentManage):
                "FROM cat_team "
                "WHERE active is True "
                "ORDER BY idval")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         if rows:
             utils_giswater.set_item_data(self.dlg_lot.cmb_assigned_to, rows, 1)
 
@@ -347,7 +349,7 @@ class AddNewLot(ParentManage):
     def get_max_id(self, table_name):
 
         sql = ("SELECT MAX(id) FROM " + table_name)
-        row = self.controller.get_row(sql)
+        row = self.controller.get_row(sql, commit=True)
         if row[0] is not None:
             return int(row[0])
 
@@ -375,10 +377,10 @@ class AddNewLot(ParentManage):
         if lot_id:
             _sql = (f"SELECT serie FROM om_visit_lot "
                     f" WHERE id = '{lot_id}'")
-            ct = self.controller.get_row(_sql)
+            ct = self.controller.get_row(_sql, commit=True)
             sql += f" OR ext_workorder.serie = '{ct[0]}'"
         sql += " order by ct"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
 
         self.list_to_show = ['']  # List to show
         self.list_to_work = [['', '', '', '', '', '', '']]  # List to work (find feature)
@@ -437,19 +439,17 @@ class AddNewLot(ParentManage):
         enddate = utils_giswater.getWidgetText(self.dlg_lot, self.dlg_lot.enddate, False, False)
 
         if enddate == '':
-            self.dlg_lot.startdate.setStyleSheet(None)
-            self.dlg_lot.enddate.setStyleSheet(None)
+            self.dlg_lot.startdate.setStyleSheet("border: 1px solid gray")
+            self.dlg_lot.enddate.setStyleSheet("border: 1px solid gray")
             return
 
         # Transform text dates as QDate
-        if startdate: startdate = startdate.replace('/', '-')
         startdate = QDate.fromString(startdate, self.lot_date_format)
-        if enddate: enddate = enddate.replace('/', '-')
         enddate = QDate.fromString(enddate, self.lot_date_format)
 
         if startdate <= enddate:
-            self.dlg_lot.startdate.setStyleSheet(None)
-            self.dlg_lot.enddate.setStyleSheet(None)
+            self.dlg_lot.startdate.setStyleSheet("border: 1px solid gray")
+            self.dlg_lot.enddate.setStyleSheet("border: 1px solid gray")
         else:
             self.dlg_lot.startdate.setStyleSheet("border: 1px solid red")
             self.dlg_lot.enddate.setStyleSheet("border: 1px solid red")
@@ -518,7 +518,7 @@ class AddNewLot(ParentManage):
             sql = (f"DELETE FROM om_visit_x_{feature_type} "
                    f" WHERE visit_id = '{visit_id}' "
                    f" AND {feature_type}_id IN {id_list};\n")
-            self.controller.execute_sql(sql)
+            self.controller.execute_sql(sql, commit=True)
 
         self.reload_table_visit()
 
@@ -585,7 +585,7 @@ class AddNewLot(ParentManage):
             sql = ("SELECT DISTINCT(id), idval, feature_type, tablename FROM om_visit_class"
                    " INNER JOIN config_api_visit ON config_api_visit.visitclass_id = om_visit_class.id")
 
-        visitclass_ids = self.controller.get_rows(sql)
+        visitclass_ids = self.controller.get_rows(sql, commit=True)
         if visitclass_ids:
             visitclass_ids.append(['', '', '', ''])
         else:
@@ -682,7 +682,7 @@ class AddNewLot(ParentManage):
 
         sql = ("SELECT om_visit_lot.*, ext_workorder.ct FROM om_visit_lot LEFT JOIN ext_workorder using (serie) "
                "WHERE id ='" + str(lot_id) + "'")
-        lot = self.controller.get_row(sql)
+        lot = self.controller.get_row(sql, commit=True)
         if lot:
             value = lot['ct']
             utils_giswater.setWidgetText(self.dlg_lot, self.dlg_lot.cmb_ot, value)
@@ -806,7 +806,7 @@ class AddNewLot(ParentManage):
                 item.append('')
 
                 sql = f"SELECT ST_GeomFromText('{feature.geometry().asWkt()}', {self.srid})"
-                the_geom = self.controller.get_row(sql, log_sql=True)
+                the_geom = self.controller.get_row(sql, commit=True, log_sql=True)
                 item.append(the_geom[0])
                 row = []
                 for value in item:
@@ -993,7 +993,7 @@ class AddNewLot(ParentManage):
         sql = (f"SELECT * FROM {table_name}"
                f" WHERE lot_id ='{lot_id}'"
                f" AND {expr_filter}")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
 
         if rows is None:
             return
@@ -1017,6 +1017,31 @@ class AddNewLot(ParentManage):
         self.put_combobox(self.dlg_lot.tbl_visit, rows, 'status', 15, combo_values)
 
 
+    def put_combobox(self, qtable, rows, field, widget_pos, combo_values):
+        """ Set one column of a QtableView as QComboBox with values from database. """
+
+        for x in range(0, len(rows)):
+            combo = QComboBox()
+            row = rows[x]
+            # Populate QComboBox
+            utils_giswater.set_item_data(combo, combo_values, 1)
+            # Set QCombobox to wanted item
+            utils_giswater.set_combo_itemData(combo, str(row[field]), 1)
+            # Get index and put QComboBox into QTableView at index position
+            idx = qtable.model().index(x, widget_pos)
+            qtable.setIndexWidget(idx, combo)
+            combo.currentIndexChanged.connect(partial(self.update_status, combo, qtable, x, widget_pos))
+
+
+    def update_status(self, combo, qtable, pos_x, widget_pos):
+        """ Update values from QComboBox to QTableView """
+        elem = combo.itemData(combo.currentIndex())
+        i = qtable.model().index(pos_x, widget_pos)
+        qtable.model().setData(i, elem[0])
+        i = qtable.model().index(pos_x, widget_pos+1)
+        qtable.model().setData(i, elem[1])
+
+
     def populate_table_relations(self, lot_id):
 
         standard_model = self.tbl_relation.model()
@@ -1024,7 +1049,7 @@ class AddNewLot(ParentManage):
 
         sql = (f"SELECT * FROM ve_lot_x_{feature_type} "
                f"WHERE lot_id ='{lot_id}'")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         self.set_table_columns(self.dlg_lot, self.dlg_lot.tbl_relation, "ve_lot_x_" + str(feature_type),
                                isQStandardItemModel=True)
         if rows is None:
@@ -1101,7 +1126,7 @@ class AddNewLot(ParentManage):
         if self.is_new_lot is True:
             sql = (f"INSERT INTO om_visit_lot({keys}) "
                    f" VALUES ({values}) RETURNING id")
-            row = self.controller.execute_returning(sql)
+            row = self.controller.execute_returning(sql, commit=True)
             lot_id = row[0]
             sql = (f"INSERT INTO selector_lot "
                    f"(lot_id, cur_user) VALUES({lot_id}, current_user);")
@@ -1409,7 +1434,7 @@ class AddNewLot(ParentManage):
 
         # Populate model visit
         sql = ("SELECT * FROM v_om_team_x_vehicle ORDER BY id")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
 
         if rows is None:
             return
@@ -1418,7 +1443,7 @@ class AddNewLot(ParentManage):
         sql = ("SELECT id, idval"
                " FROM cat_team"
                " ORDER BY id")
-        combo_values = self.controller.get_rows(sql)
+        combo_values = self.controller.get_rows(sql, commit=True)
 
         if combo_values is None:
             return
@@ -1429,7 +1454,7 @@ class AddNewLot(ParentManage):
         sql = ("SELECT id, idval"
                " FROM ext_cat_vehicle"
                " ORDER BY id")
-        combo_values = self.controller.get_rows(sql)
+        combo_values = self.controller.get_rows(sql, commit=True)
 
         if combo_values is None:
             return
@@ -1460,7 +1485,7 @@ class AddNewLot(ParentManage):
 
         # Get columns to ignore for tab_relations when export csv
         sql = "SELECT column_id FROM config_client_forms WHERE location_type = 'tbl_user' AND status IS NOT TRUE AND table_id = 'om_visit_lot_x_user'"
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         result_relation = []
         if rows is not None:
             for row in rows:
@@ -1614,8 +1639,8 @@ class AddNewLot(ParentManage):
         widget = utils_giswater.getWidget(dialog, str(widget_name))
         csv_path = utils_giswater.getWidgetText(dialog, widget)
         if str(csv_path) == 'null':
-            message = "Select a valid path."
-            self.controller.show_info_box(message, "Info")
+            msg = "Select a valid path."
+            self.controller.show_info_box(msg, "Info")
             return
         all_rows = []
         row = []
@@ -1658,7 +1683,7 @@ class AddNewLot(ParentManage):
         with open(folder_path, "w") as output:
             writer = csv.writer(output, lineterminator='\n')
             writer.writerows(all_rows)
-        message = "The csv file has been successfully exported"
+        message = "El fitxer csv ha estat exportat correctament"
         self.controller.show_info(message)
 
 
@@ -1667,7 +1692,7 @@ class AddNewLot(ParentManage):
         sql = (f"SELECT {fields} "
                f"FROM {table_name} "
                f"ORDER BY idval")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         if rows:
             rows.append(['', ''])
             utils_giswater.set_item_data(combo, rows, 1)
@@ -1787,7 +1812,7 @@ class AddNewLot(ParentManage):
                " FROM config_client_forms"
                " WHERE table_id = '" + table_name + "'"
                " ORDER BY column_index")
-        rows = self.controller.get_rows(sql, log_info=False)
+        rows = self.controller.get_rows(sql, log_info=False, commit=True)
         if not rows:
             return widget
 
@@ -1830,7 +1855,7 @@ class AddNewLot(ParentManage):
 
         selected_list = self.tbl_load.selectionModel().selectedRows(0)
         if selected_list == 0 or str(selected_list) == '[]':
-            message = "Any record selected"
+            message = "Any load selected"
             self.controller.show_info_box(message)
             return
 
@@ -1841,7 +1866,7 @@ class AddNewLot(ParentManage):
         # Get path of selected image
         sql = ("SELECT image FROM om_vehicle_x_parameters"
                " WHERE id = '" + str(selected_list[0].data()) + "'")
-        row = self.controller.get_row(sql)
+        row = self.controller.get_row(sql, commit=True)
         if not row:
             return
 

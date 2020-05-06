@@ -1,5 +1,5 @@
 """
-This file is part of Giswater 3
+This file is part of Giswater 2.0
 The program is free software: you can redistribute it and/or modify it under the terms of the GNU
 General Public License as published by the Free Software Foundation, either version 3 of the License,
 or (at your option) any later version.
@@ -7,14 +7,15 @@ or (at your option) any later version.
 # -*- coding: utf-8 -*-
 
 from qgis.core import QgsExpression
-from qgis.PyQt.QtCore import QStringListModel, Qt,QDate
+from qgis.PyQt.QtCore import QStringListModel, Qt
 from qgis.PyQt.QtGui import QCursor, QIcon, QPixmap
 from qgis.PyQt.QtSql import QSqlTableModel
-from qgis.PyQt.QtWidgets import QApplication, QComboBox, QCompleter, QTableView
+from qgis.PyQt.QtWidgets import QCompleter, QApplication, QTableView
 
-import configparser, os, sys
-from functools import partial
 
+import configparser
+import os
+import sys
 if 'nt' in sys.builtin_module_names:
     import ctypes
 
@@ -339,78 +340,3 @@ class TmParentAction(object):
 
         return False
 
-
-    def put_combobox(self, qtable, rows, combo_values, field, combo_pos, col_update):
-        """ Set one column of a QtableView as QComboBox with values from database.
-        :param qtable: QTableView to fill
-        :param rows: List of items to set QComboBox (["..", "..."])
-        :param combo_values: List of items to populate QComboBox (["..", "..."])
-        :param field: Field to set QComboBox (String)
-        :param combo_pos: Position of the column where we want to put the QComboBox (integer)
-        :param col_update: Column to update into QTableView.Model() (integer)
-        :return:
-        """
-        self.controller.log_info(str())
-        for x, row in enumerate(rows):
-            combo = QComboBox()
-            combo.setSizeAdjustPolicy(2)
-            # Populate QComboBox
-            utils_giswater.set_item_data(combo, combo_values, 1)
-            # Set QCombobox to wanted item
-            utils_giswater.set_combo_itemData(combo, str(row[field]), 0)
-            # Get index and put QComboBox into QTableView at index position
-            idx = qtable.model().index(x, combo_pos)
-            qtable.setIndexWidget(idx, combo)
-            combo.currentIndexChanged.connect(partial(self.update_real_field, qtable, combo, x, combo_pos, col_update))
-
-
-    def update_real_field(self, qtable, combo, pos_x, combo_pos, col_update):
-        """ Update values from QComboBox to QTableView
-        :param qtable: QTableView Where update values
-         :param combo: QComboBox from which we will take the value
-        :param pos_x: Position of the row where we want to update value (integer)
-        :param combo_pos: Position of the column where we want to put the QComboBox (integer)
-        :param col_update: Column to update into QTableView.Model() (integer)
-        :return:
-        """
-
-        elem = combo.itemData(combo.currentIndex())
-        i = qtable.model().index(pos_x, combo_pos)
-        qtable.model().setData(i, elem[0])
-        i = qtable.model().index(pos_x, col_update)
-        qtable.model().setData(i, elem[0])
-
-
-    def create_body(self, form='', feature='', filter_fields='', extras=None):
-        """ Create and return parameters as body to functions"""
-
-        client = f'$${{"client":{{"device":9, "infoType":100, "lang":"ES"}}, '
-        form = '"form":{' + form + '}, '
-        feature = '"feature":{' + feature + '}, '
-        filter_fields = '"filterFields":{' + filter_fields + '}'
-        page_info = '"pageInfo":{}'
-        data = '"data":{' + filter_fields + ', ' + page_info
-        if extras is not None:
-            data += ', ' + extras
-        data += f'}}}}$$'
-        body = "" + client + form + feature + data
-
-        return body
-
-
-    def set_dates_from_to(self, widget_from, widget_to, table_name, field_from, field_to):
-
-        sql = ("SELECT MIN(LEAST("+field_from+", "+field_to+")),"
-               " MAX(GREATEST("+field_from+", "+field_to+"))"
-               " FROM "+table_name+"")
-        row = self.controller.get_row(sql, log_sql=False)
-        current_date = QDate.currentDate()
-        if row:
-            if row[0]:
-                widget_from.setDate(row[0])
-            else:
-                widget_from.setDate(current_date)
-            if row[1]:
-                widget_to.setDate(row[1])
-            else:
-                widget_to.setDate(current_date)

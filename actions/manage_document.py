@@ -10,7 +10,7 @@ from qgis.PyQt.QtWidgets import QAbstractItemView, QTableView
 from functools import partial
 
 from .. import utils_giswater
-from ..ui_manager import DocUi, DocManagement
+from ..ui_manager import AddDoc, DocManagement
 from .parent_manage import ParentManage
 
 
@@ -30,11 +30,11 @@ class ManageDocument(ParentManage):
         self.manage_document()
                 
 
-    def manage_document(self, tablename=None, qtable=None, item_id=None, feature=None, geom_type=None, row=None):
+    def manage_document(self, tablename=None, qtable=None, item_id=None, feature=None, geom_type=None):
         """ Button 34: Add document """
 
         # Create the dialog and signals
-        self.dlg_add_doc = DocUi()
+        self.dlg_add_doc = AddDoc()
         self.load_settings(self.dlg_add_doc)
         self.doc_id = None           
 
@@ -76,13 +76,6 @@ class ManageDocument(ParentManage):
         # Fill combo boxes
         self.populate_combo(self.dlg_add_doc, "doc_type", "doc_type")
 
-        # Set current/selected date and link
-        if row:
-            utils_giswater.setCalendarDate(self.dlg_add_doc, 'date', row.value('date'))
-            utils_giswater.setWidgetText(self.dlg_add_doc, 'path', row.value('path'))
-        else:
-            utils_giswater.setCalendarDate(self.dlg_add_doc, 'date', None)
-
         # Adding auto-completion to a QLineEdit
         table_object = "doc"        
         self.set_completer_object(self.dlg_add_doc, table_object)
@@ -90,16 +83,15 @@ class ManageDocument(ParentManage):
         # Adding auto-completion to a QLineEdit for default feature
         if geom_type is None:
             geom_type = "arc"
-        viewname = f"v_edit_{geom_type}"
+        viewname = "v_edit_" + geom_type
         self.set_completer_feature_id(self.dlg_add_doc.feature_id, geom_type, viewname)
-
         # Set signals
-        self.dlg_add_doc.btn_path_url.clicked.connect(partial(self.open_web_browser, self.dlg_add_doc, "path"))
-        self.dlg_add_doc.btn_path_doc.clicked.connect(partial(self.get_file_dialog, self.dlg_add_doc, "path"))
+        self.dlg_add_doc.path_url.clicked.connect(partial(self.open_web_browser, self.dlg_add_doc, "path"))
+        self.dlg_add_doc.path_doc.clicked.connect(partial(self.get_file_dialog, self.dlg_add_doc, "path"))
         self.dlg_add_doc.btn_accept.clicked.connect(partial(self.manage_document_accept, table_object, tablename, qtable, item_id))        
-        self.dlg_add_doc.btn_cancel.clicked.connect(partial(self.manage_close, self.dlg_add_doc, table_object, cur_active_layer, excluded_layers=["v_edit_element"]))
-        self.dlg_add_doc.rejected.connect(partial(self.manage_close, self.dlg_add_doc, table_object, cur_active_layer, excluded_layers=["v_edit_element"]))
-        self.dlg_add_doc.tab_feature.currentChanged.connect(partial(self.tab_feature_changed, self.dlg_add_doc,  table_object, excluded_layers=["v_edit_element"]))
+        self.dlg_add_doc.btn_cancel.clicked.connect(partial(self.manage_close, self.dlg_add_doc, table_object, cur_active_layer))
+        self.dlg_add_doc.rejected.connect(partial(self.manage_close, self.dlg_add_doc, table_object, cur_active_layer))
+        self.dlg_add_doc.tab_feature.currentChanged.connect(partial(self.tab_feature_changed, self.dlg_add_doc,  table_object))
         self.dlg_add_doc.doc_id.textChanged.connect(partial(self.exist_object, self.dlg_add_doc, table_object))
         self.dlg_add_doc.btn_insert.clicked.connect(partial(self.insert_feature, self.dlg_add_doc, table_object))
         self.dlg_add_doc.btn_delete.clicked.connect(partial(self.delete_records, self.dlg_add_doc,  table_object))
@@ -110,11 +102,10 @@ class ManageDocument(ParentManage):
         # Set default tab 'arc'
         self.dlg_add_doc.tab_feature.setCurrentIndex(0)
         self.geom_type = "arc"
-        self.tab_feature_changed(self.dlg_add_doc, table_object, excluded_layers=["v_edit_element"])
+        self.tab_feature_changed(self.dlg_add_doc, table_object)
 
         # Open the dialog
-        self.open_dialog(self.dlg_add_doc, dlg_name='doc', maximize_button=False)
-
+        self.open_dialog(self.dlg_add_doc, maximize_button=False)
         return self.dlg_add_doc
 
 
@@ -135,11 +126,9 @@ class ManageDocument(ParentManage):
         
         # Get values from dialog
         doc_id = utils_giswater.getWidgetText(self.dlg_add_doc, "doc_id")
-        doc_type = utils_giswater.getWidgetText(self.dlg_add_doc, "doc_type", return_string_null=True)
-        date = utils_giswater.getCalendarDate(self.dlg_add_doc, "date", datetime_format="yyyy/MM/dd")
+        doc_type = utils_giswater.getWidgetText(self.dlg_add_doc, "doc_type", return_string_null=False)
         observ = utils_giswater.getWidgetText(self.dlg_add_doc, "observ", return_string_null=False)
         path = utils_giswater.getWidgetText(self.dlg_add_doc, "path", return_string_null=False)
-
         if doc_type == 'null':
             message = "You need to insert doc_type"
             self.controller.show_warning(message)
@@ -154,14 +143,14 @@ class ManageDocument(ParentManage):
         # If document not exists perform an INSERT
         if row is None:
             if doc_id == 'null':
-                sql = (f"INSERT INTO doc (doc_type, path, observ, date)"
-                       f" VALUES ('{doc_type}', '{path}', '{observ}', '{date}') RETURNING id;")
+                sql = (f"INSERT INTO doc (doc_type, path, observ)"
+                       f" VALUES ('{doc_type}', '{path}', '{observ}') RETURNING id;")
                 new_doc_id = self.controller.execute_returning(sql, search_audit=False, log_sql=True)
                 sql = ""
                 doc_id = str(new_doc_id[0])
             else:
-                sql = (f"INSERT INTO doc (id, doc_type, path, observ, date)"
-                       f" VALUES ('{doc_id}', '{doc_type}', '{path}', '{observ}', '{date}');")
+                sql = (f"INSERT INTO doc (id, doc_type, path, observ)"
+                       f" VALUES ('{doc_id}', '{doc_type}', '{path}', '{observ}');")
 
         # If document exists perform an UPDATE
         else:
@@ -170,7 +159,7 @@ class ManageDocument(ParentManage):
             if not answer:
                 return
             sql = (f"UPDATE doc "
-                   f" SET doc_type = '{doc_type}', observ = '{observ}', path = '{path}', date = '{date}'"
+                   f" SET doc_type = '{doc_type}', observ = '{observ}', path = '{path}'"
                    f" WHERE id = '{doc_id}';")
 
         # Manage records in tables @table_object_x_@geom_type
@@ -204,7 +193,7 @@ class ManageDocument(ParentManage):
         status = self.controller.execute_sql(sql)
         if status:
             self.doc_id = doc_id            
-            self.manage_close(self.dlg_add_doc, table_object, excluded_layers=["v_edit_element"])
+            self.manage_close(self.dlg_add_doc, table_object)  
 
         if tablename is None:
             return

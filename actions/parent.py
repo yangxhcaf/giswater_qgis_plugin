@@ -5,23 +5,22 @@ General Public License as published by the Free Software Foundation, either vers
 or (at your option) any later version.
 """
 # -*- coding: utf-8 -*-
-from qgis.core import QgsExpression, QgsFeatureRequest, QgsGeometry, QgsPointXY, QgsProject, QgsRectangle
-from qgis.gui import QgsRubberBand
-from qgis.PyQt.QtCore import Qt, QDate, QStringListModel, QTimer
-from qgis.PyQt.QtWidgets import QGroupBox, QAbstractItemView, QTableView, QFileDialog, QApplication, QCompleter, \
-    QAction, QWidget, QComboBox, QCheckBox, QPushButton, QLineEdit, QDoubleSpinBox, QTextEdit
-from qgis.PyQt.QtGui import QIcon, QColor, QCursor, QPixmap
+from qgis.core import QgsVectorLayerExporter, QgsDataSourceUri, QgsExpression, QgsFeature, QgsFeatureRequest, QgsField, QgsGeometry, QgsProject, QgsRectangle, QgsVectorLayer
+from qgis.PyQt.QtCore import Qt, QDate, QStringListModel, QVariant
+from qgis.PyQt.QtWidgets import QGroupBox, QAbstractItemView, QTableView, QFileDialog, QApplication, QCompleter, QAction, QWidget, QSpacerItem, QLabel, QComboBox, QCheckBox, QSizePolicy, QPushButton, QLineEdit, QDoubleSpinBox, QTextEdit, QTabWidget, QGridLayout
+from qgis.PyQt.QtGui import QIcon, QCursor, QPixmap
 from qgis.PyQt.QtSql import QSqlTableModel, QSqlQueryModel
 
-import configparser, os, re, subprocess, sys, webbrowser
+import configparser, json, os, re, sys, webbrowser
 if 'nt' in sys.builtin_module_names:
     import ctypes
 
+from collections import OrderedDict
 from functools import partial
 
 from .. import utils_giswater
 from .add_layer import AddLayer
-from ..ui_manager import BasicInfoUi, GwDialog, GwMainWindow, DockerUi
+from ..ui_manager import BasicInfo, GwDialog, GwMainWindow
 
 
 class ParentAction(object):
@@ -40,24 +39,7 @@ class ParentAction(object):
         self.project_type = None
         self.plugin_version = self.get_plugin_version()
         self.add_layer = AddLayer(iface, settings, controller, plugin_dir)
-        self.user_current_layer = None
-        self.rubber_point = None
-        self.rubber_polygon = None
-
-
-    def init_rubber(self):
-
-        try:
-            self.rubber_point = QgsRubberBand(self.canvas, 0)
-            self.rubber_point.setColor(Qt.yellow)
-            self.rubber_point.setIconSize(10)
-            self.rubber_polygon = QgsRubberBand(self.canvas, 2)
-            self.rubber_polygon.setColor(Qt.darkRed)
-            self.rubber_polygon.setIconSize(20)
-        except:
-            pass
-
-
+    
     def set_controller(self, controller):
         """ Set controller class """
         
@@ -173,8 +155,8 @@ class ParentAction(object):
         self.controller.plugin_settings_set_value(dialog.objectName() + "_height", dialog.property('height'))
         self.controller.plugin_settings_set_value(dialog.objectName() + "_x", dialog.pos().x()+8)
         self.controller.plugin_settings_set_value(dialog.objectName() + "_y", dialog.pos().y()+31)
-
-
+        
+        
     def open_dialog(self, dlg=None, dlg_name=None, info=True, maximize_button=True, stay_on_top=True):
         """ Open dialog """
 
@@ -186,7 +168,7 @@ class ParentAction(object):
             dlg = self.dlg
             
         # Manage i18n of the dialog                  
-        if dlg_name:
+        if dlg_name:      
             self.controller.manage_translation(dlg_name, dlg)
 
         # Manage stay on top, maximize/minimize button and information button
@@ -251,13 +233,13 @@ class ParentAction(object):
         tbl_all_rows.setSelectionBehavior(QAbstractItemView.SelectRows)
         schema_name = self.schema_name.replace('"', '')
         query_left = f"SELECT * FROM {schema_name}.{tableleft} WHERE {name} NOT IN "
-        query_left += f"(SELECT {schema_name}.{tableleft}.{name} FROM {schema_name}.{tableleft}"
+        query_left += f"(SELECT {tableleft}.{name} FROM {schema_name}.{tableleft}"
         query_left += f" RIGHT JOIN {schema_name}.{tableright} ON {tableleft}.{field_id_left} = {tableright}.{field_id_right}"
         query_left += f" WHERE cur_user = current_user)"
         query_left += f" AND  {field_id_left} > -1"
         query_left += aql
 
-        self.fill_table_by_query(tbl_all_rows, query_left + f" ORDER BY {name};")
+        self.fill_table_by_query(tbl_all_rows, query_left)
         self.hide_colums(tbl_all_rows, hide_left)
         tbl_all_rows.setColumnWidth(1, 200)
 
@@ -271,7 +253,7 @@ class ParentAction(object):
 
         query_right += " WHERE cur_user = current_user"
 
-        self.fill_table_by_query(tbl_selected_rows, query_right + f" ORDER BY {name};")
+        self.fill_table_by_query(tbl_selected_rows, query_right)
         self.hide_colums(tbl_selected_rows, hide_right)
         tbl_selected_rows.setColumnWidth(0, 200)
         # Button select
@@ -283,7 +265,7 @@ class ParentAction(object):
         dialog.btn_unselect.clicked.connect(partial(self.unselector, tbl_all_rows, tbl_selected_rows, query_delete, query_left, query_right, field_id_right))
 
         # QLineEdit
-        dialog.txt_name.textChanged.connect(partial(self.query_like_widget_text, dialog, dialog.txt_name, tbl_all_rows, tableleft, tableright, field_id_right, field_id_left, name, aql))
+        dialog.txt_name.textChanged.connect(partial(self.query_like_widget_text, dialog, dialog.txt_name, tbl_all_rows, tableleft, tableright, field_id_right, field_id_left, name))
 
         # Order control
         tbl_all_rows.horizontalHeader().sectionClicked.connect(partial(self.order_by_column, tbl_all_rows, query_left))
@@ -461,18 +443,15 @@ class ParentAction(object):
             self.controller.show_warning(model.lastError().text())  
             
 
-    def query_like_widget_text(self, dialog, text_line, qtable, tableleft, tableright, field_id_r, field_id_l, name='name', aql=''):
+    def query_like_widget_text(self, dialog, text_line, qtable, tableleft, tableright, field_id_r, field_id_l, name='name'):
         """ Fill the QTableView by filtering through the QLineEdit"""
-
-        schema_name = self.schema_name.replace('"', '')
+        
         query = utils_giswater.getWidgetText(dialog, text_line, return_string_null=False).lower()
-        sql = (f"SELECT * FROM {schema_name}.{tableleft} WHERE {name} NOT IN "
-               f"(SELECT {tableleft}.{name} FROM {schema_name}.{tableleft}"
-               f" RIGHT JOIN {schema_name}.{tableright}"
+        sql = (f"SELECT * FROM {tableleft} WHERE {name} NOT IN "
+               f"(SELECT {tableleft}.{name} FROM {tableleft}"
+               f" RIGHT JOIN {tableright}"
                f" ON {tableleft}.{field_id_l} = {tableright}.{field_id_r}"
-               f" WHERE cur_user = current_user) AND LOWER({name}::text) LIKE '%{query}%'"
-               f"  AND  {field_id_l} > -1")
-        sql += aql
+               f" WHERE cur_user = current_user) AND LOWER({name}::text) LIKE '%{query}%'")
         self.fill_table_by_query(qtable, sql)
         
         
@@ -549,7 +528,7 @@ class ParentAction(object):
                f" FROM config_client_forms"
                f" WHERE table_id = '{table_name}'"
                f" ORDER BY column_index")
-        rows = self.controller.get_rows(sql, log_info=False)
+        rows = self.controller.get_rows(sql, commit=True, log_info=False)
         if not rows:
             return
 
@@ -661,19 +640,15 @@ class ParentAction(object):
                 layer.removeSelection()
 
 
-    def hide_void_groupbox(self, dialog):
-        """ Hide empty groupbox """
 
-        grb_list = {}
+    def hide_void_groupbox(self, dialog):
+        """ Hide empty grupbox """
+
         grbox_list = dialog.findChildren(QGroupBox)
         for grbox in grbox_list:
-
             widget_list = grbox.findChildren(QWidget)
             if len(widget_list) == 0:
-                grb_list[grbox.objectName()] = 0
                 grbox.setVisible(False)
-
-        return grb_list
 
 
     def zoom_to_selected_features(self, layer, geom_type=None, zoom=None):
@@ -705,37 +680,34 @@ class ParentAction(object):
             self.iface.mapCanvas().zoomScale(float(scale))
 
 
-    def make_list_for_completer(self, sql):
-        """ Prepare a list with the necessary items for the completer
-        :param sql: Query to be executed, where will we get the list of items (string)
-        :return list_items: List with the result of the query executed (List) ["item1","item2","..."]
+    def set_completer(self, tablename, widget, field_search, color='black'):
+        """ Set autocomplete of widget @table_object + "_id"
+            getting id's from selected @table_object
         """
 
-        rows = self.controller.get_rows(sql)
-        list_items = []
-        if rows:
-            for row in rows:
-                list_items.append(str(row[0]))
-        return list_items
+        if not widget:
+            return
 
+        # Set SQL
+        sql = (f"SELECT DISTINCT({field_search})"
+               f" FROM {tablename}"
+               f" ORDER BY {field_search}")
+        row = self.controller.get_rows(sql, commit=True)
 
-    def set_completer_lineedit(self, qlineedit, list_items):
-        """ Set a completer into a QLineEdit
-        :param qlineedit: Object where to set the completer (QLineEdit)
-        :param list_items: List of items to set into the completer (List)["item1","item2","..."]
-        """
+        for i in range(0, len(row)):
+            aux = row[i]
+            row[i] = str(aux[0])
 
-        completer = QCompleter()
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setMaxVisibleItems(10)
-        completer.setCompletionMode(0)
-        completer.setFilterMode(Qt.MatchContains)
-        completer.popup().setStyleSheet("color: black;")
-        qlineedit.setCompleter(completer)
+        # Set completer and model: add autocomplete in the widget
+        self.completer = QCompleter()
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.completer.setCompletionMode(0)
+        self.completer.popup().setStyleSheet("color: "+color+";")
+        widget.setCompleter(self.completer)
+
         model = QStringListModel()
-        model.setStringList(list_items)
-        completer.setModel(model)
-
+        model.setStringList(row)
+        self.completer.setModel(model)
 
     def get_max_rectangle_from_coords(self, list_coord):
         """ Returns the minimum rectangle(x1, y1, x2, y2) of a series of coordinates
@@ -761,7 +733,6 @@ class ParentAction(object):
                 max_y = y
 
         return max_x, max_y, min_x, min_y
-
 
     def zoom_to_rectangle(self, x1, y1, x2, y2, margin=5):
 
@@ -805,34 +776,115 @@ class ParentAction(object):
                 layer = lyr
                 break
         if layer is not None:
-            # Remove layer
             QgsProject.instance().removeMapLayer(layer)
-
-            # Remove group if is void
-            root = QgsProject.instance().layerTreeRoot()
-            group = root.findGroup('GW Temporal Layers')
-            if group:
-                layers = group.findLayers()
-                if not layers:
-                    root.removeChildNode(group)
             self.delete_layer_from_toc(layer_name)
 
 
     def create_body(self, form='', feature='', filter_fields='', extras=None):
         """ Create and return parameters as body to functions"""
 
-        client = f'$${{"client":{{"device":9, "infoType":100, "lang":"ES"}}, '
+        client = '"client":{"device":9, "infoType":100, "lang":"ES"}, '
         form = f'"form":{{{form}}}, '
         feature = f'"feature":{{{feature}}}, '
         filter_fields = f'"filterFields":{{{filter_fields}}}'
-        page_info = f'"pageInfo":{{}}'
+        page_info = '"pageInfo":{}'
         data = f'"data":{{{filter_fields}, {page_info}'
         if extras is not None:
             data += ', ' + extras
-        data += f'}}}}$$'
+        data += '}'
         body = "" + client + form + feature + data
 
         return body
+
+    def set_layers_visible(self, layers):
+        for layer in layers:
+            lyr = self.controller.get_layer_by_tablename(layer)
+            if lyr:
+                self.controller.set_layer_visible(lyr)
+
+    def add_temp_layer(self, dialog, data, function_name, force_tab=True, reset_text=True, tab_idx=1, del_old_layers=True):
+        if del_old_layers:
+            self.delete_layer_from_toc(function_name)
+        srid = self.controller.plugin_settings_value('srid')
+        for k, v in list(data.items()):
+            if str(k) == 'setVisibleLayers':
+                self.set_layers_visible(v)
+            elif str(k) == "info":
+                self.populate_info_text(dialog, data, force_tab, reset_text, tab_idx)
+            else:
+                counter = len(data[k]['values'])
+                if counter > 0:
+                    counter = len(data[k]['values'])
+                    geometry_type = data[k]['geometryType']
+                    v_layer = QgsVectorLayer(f"{geometry_type}?crs=epsg:{srid}", function_name, 'memory')
+                    self.populate_vlayer(v_layer, data, k, counter)
+                    if 'qmlPath' in data[k]:
+                        qml_path = data[k]['qmlPath']
+                        self.load_qml(v_layer, qml_path)
+
+
+    def populate_info_text(self, dialog, data, force_tab=True, reset_text=True, tab_idx=1):
+
+        change_tab = False
+        text = utils_giswater.getWidgetText(dialog, dialog.txt_infolog, return_string_null=False)
+
+        if reset_text:
+            text = ""
+        for item in data['info']['values']:
+            if 'message' in item:
+                if item['message'] is not None:
+                    text += str(item['message']) + "\n"
+                    if force_tab:
+                        change_tab = True
+                else:
+                    text += "\n"
+
+        utils_giswater.setWidgetText(dialog, 'txt_infolog', text+"\n")
+        qtabwidget = dialog.findChild(QTabWidget,'mainTab')
+        if change_tab and qtabwidget is not None:
+            qtabwidget.setCurrentIndex(tab_idx)
+
+        return change_tab
+
+
+    def populate_vlayer(self, virtual_layer, data, layer_type, counter):
+
+        prov = virtual_layer.dataProvider()
+
+        # Enter editing mode
+        virtual_layer.startEditing()
+        if counter > 0:
+            for key, value in list(data[layer_type]['values'][0].items()):
+                # add columns
+                if str(key) != 'the_geom':
+                    prov.addAttributes([QgsField(str(key), QVariant.String)])
+
+        # Add features
+        for item in data[layer_type]['values']:
+            attributes = []
+            fet = QgsFeature()
+
+            for k, v in list(item.items()):
+                if str(k) != 'the_geom':
+                    attributes.append(v)
+                if str(k) in 'the_geom':
+                    sql = f"SELECT St_AsText('{v}')"
+                    row = self.controller.get_row(sql, log_sql=False)
+                    if row and row[0]:
+                        geometry = QgsGeometry.fromWkt(str(row[0]))
+                        fet.setGeometry(geometry)
+            fet.setAttributes(attributes)
+            prov.addFeatures([fet])
+
+        # Commit changes
+        virtual_layer.commitChanges()
+        QgsProject.instance().addMapLayer(virtual_layer, False)
+        root = QgsProject.instance().layerTreeRoot()
+        my_group = root.findGroup('GW Functions results')
+        if my_group is None:
+            my_group = root.insertGroup(0, 'GW Functions results')
+
+        my_group.insertLayer(0, virtual_layer)
 
 
     def get_composers_list(self):
@@ -853,6 +905,19 @@ class ParentAction(object):
             index += 1
 
         return index
+
+
+    def get_all_actions(self):
+
+        self.controller.log_info(str("TEST"))
+        actions_list = self.iface.mainWindow().findChildren(QAction)
+        for action in actions_list:
+           self.controller.log_info(str(action.objectName()))
+           action.triggered.connect(partial(self.show_action_name, action))
+
+
+    def show_action_name(self, action):
+        self.controller.log_info(str(action.objectName()))
 
 
     def set_restriction(self, dialog, widget_to_ignore, restriction):
@@ -902,7 +967,7 @@ class ParentAction(object):
                f" FROM {table_name}"
                f" WHERE typevalue = '{typevalue}'"
                f" ORDER BY {order_by}")
-        rows = self.controller.get_rows(sql)
+        rows = self.controller.get_rows(sql, commit=True)
         return rows
 
 
@@ -911,9 +976,8 @@ class ParentAction(object):
             This function is called in def set_datatype_validator(self, value, widget, btn)
             widget = getattr(self, f"{widget.property('datatype')}_validator")( value, widget, btn)
         """
-
         if value is None or bool(re.search("^\d*$", value)):
-            widget.setStyleSheet(None)
+            widget.setStyleSheet("QLineEdit{background:rgb(255, 255, 255); color:rgb(0, 0, 0)}")
             btn_accept.setEnabled(True)
         else:
             widget.setStyleSheet("border: 1px solid red")
@@ -925,9 +989,8 @@ class ParentAction(object):
             This function is called in def set_datatype_validator(self, value, widget, btn)
             widget = getattr(self, f"{widget.property('datatype')}_validator")( value, widget, btn)
         """
-
         if value is None or bool(re.search("^\d*$", value)) or bool(re.search("^\d+\.\d+$", value)):
-            widget.setStyleSheet(None)
+            widget.setStyleSheet("QLineEdit{background:rgb(255, 255, 255); color:rgb(0, 0, 0)}")
             btn_accept.setEnabled(True)
         else:
             widget.setStyleSheet("border: 1px solid red")
@@ -963,249 +1026,11 @@ class ParentAction(object):
 
 
     def show_exceptions_msg(self, title, msg=""):
-
         cat_exception = {'KeyError': 'Key on returned json from ddbb is missed.'}
-        self.dlg_info = BasicInfoUi()
+        self.dlg_info = BasicInfo()
         self.dlg_info.btn_accept.setVisible(False)
         self.dlg_info.btn_close.clicked.connect(partial(self.close_dialog, self.dlg_info))
         self.dlg_info.setWindowTitle(title)
         utils_giswater.setWidgetText(self.dlg_info, self.dlg_info.txt_infolog, msg)
         self.open_dialog(self.dlg_info)
-
-
-
-    def put_combobox(self, qtable, rows, field, widget_pos, combo_values):
-        """ Set one column of a QtableView as QComboBox with values from database.
-        :param qtable: QTableView to fill
-        :param rows: List of items to set QComboBox (["..", "..."])
-        :param field: Field to set QComboBox (String)
-        :param widget_pos: Position of the column where we want to put the QComboBox (integer)
-        :param combo_values: List of items to populate QComboBox (["..", "..."])
-        :return:
-        """
-
-        for x in range(0, len(rows)):
-            combo = QComboBox()
-            row = rows[x]
-            # Populate QComboBox
-            utils_giswater.set_item_data(combo, combo_values, 1)
-            # Set QCombobox to wanted item
-            utils_giswater.set_combo_itemData(combo, str(row[field]), 1)
-            # Get index and put QComboBox into QTableView at index position
-            idx = qtable.model().index(x, widget_pos)
-            qtable.setIndexWidget(idx, combo)
-            combo.currentIndexChanged.connect(partial(self.update_status, combo, qtable, x, widget_pos))
-
-
-    def update_status(self, combo, qtable, pos_x, widget_pos):
-        """ Update values from QComboBox to QTableView
-        :param combo: QComboBox from which we will take the value
-        :param qtable: QTableView Where update values
-        :param pos_x: Position of the row where we want to update value (integer)
-        :param widget_pos:Position of the widget where we want to update value (integer)
-        :return:
-        """
-
-        elem = combo.itemData(combo.currentIndex())
-        i = qtable.model().index(pos_x, widget_pos)
-        qtable.model().setData(i, elem[0])
-        i = qtable.model().index(pos_x, widget_pos+1)
-        qtable.model().setData(i, elem[1])
-
-
-    def document_insert(self, dialog, tablename, field, field_value):
-        """ Insert a document related to the current visit
-        :param dialog: (QDialog )
-        :param tablename: Name of the table to make the queries (string)
-        :param field: Field of the table to make the where clause (string)
-        :param field_value: Value to compare in the clause where (string)
-        """
-
-        doc_id = dialog.doc_id.text()
-        if not doc_id:
-            message = "You need to insert doc_id"
-            self.controller.show_warning(message)
-            return
-
-        # Check if document already exist
-        sql = (f"SELECT doc_id"
-               f" FROM {tablename}"
-               f" WHERE doc_id = '{doc_id}' AND {field} = '{field_value}'")
-        row = self.controller.get_row(sql)
-        if row:
-            msg = "Document already exist"
-            self.controller.show_warning(msg)
-            return
-
-        # Insert into new table
-        sql = (f"INSERT INTO {tablename} (doc_id, {field})"
-               f" VALUES ('{doc_id}', '{field_value}')")
-        status = self.controller.execute_sql(sql)
-        if status:
-            message = "Document inserted successfully"
-            self.controller.show_info(message)
-
-        dialog.tbl_document.model().select()
-
-
-    def document_open(self, qtable):
-        """ Open selected document """
-
-        # Get selected rows
-        field_index = qtable.model().fieldIndex('path')
-        selected_list = qtable.selectionModel().selectedRows(field_index)
-        if not selected_list:
-            message = "Any record selected"
-            self.controller.show_info_box(message)
-            return
-        elif len(selected_list) > 1:
-            message = "More then one document selected. Select just one document."
-            self.controller.show_warning(message)
-            return
-
-        path = selected_list[0].data()
-        # Check if file exist
-        if os.path.exists(path):
-            # Open the document
-            if sys.platform == "win32":
-                os.startfile(path)
-            else:
-                opener = "open" if sys.platform == "darwin" else "xdg-open"
-                subprocess.call([opener, path])
-        else:
-            webbrowser.open(path)
-
-
-    def document_delete(self, qtable, tablename):
-        """ Delete record from selected rows in tbl_document """
-
-        # Get selected rows. 0 is the column of the pk 0 'id'
-        selected_list = qtable.selectionModel().selectedRows(0)
-        if len(selected_list) == 0:
-            message = "Any record selected"
-            self.controller.show_info_box(message)
-            return
-
-        selected_id = []
-        for index in selected_list:
-            doc_id = index.data()
-            selected_id.append(str(doc_id))
-        message = "Are you sure you want to delete these records?"
-        title = "Delete records"
-        answer = self.controller.ask_question(message, title, ','.join(selected_id))
-        if answer:
-            sql = (f"DELETE FROM {tablename}"
-                   f" WHERE id IN ({','.join(selected_id)})")
-            status = self.controller.execute_sql(sql)
-            if not status:
-                message = "Error deleting data"
-                self.controller.show_warning(message)
-                return
-            else:
-                message = "Document deleted"
-                self.controller.show_info(message)
-                qtable.model().select()
-
-
-    def dock_dialog(self, docker, dialog):
-
-        positions = {8:Qt.BottomDockWidgetArea, 4:Qt.TopDockWidgetArea,
-                     2:Qt.RightDockWidgetArea, 1:Qt.LeftDockWidgetArea}
-        try:
-            docker.setWindowTitle(dialog.windowTitle())
-            docker.setWidget(dialog)
-            docker.setWindowFlags(Qt.WindowContextHelpButtonHint)
-            self.iface.addDockWidget(positions[docker.position], docker)
-        except RuntimeError as e:
-            self.controller.log_warning(f"{type(e).__name__} --> {e}")
-            pass
-
-
-    def manage_docker_options(self):
-        """ Check if user want dock the dialog or not """
-
-        # Load last docker position
-        cur_user = self.controller.get_current_user()
-        pos = self.controller.plugin_settings_value(f"docker_info_{cur_user}")
-
-        # Docker positions: 1=Left, 2=Right, 4=Top, 8=Bottom
-        self.dlg_docker.position = 2
-        if type(pos) is int and pos in (1, 2, 4, 8):
-            self.dlg_docker.position = pos
-
-        # If user want to dock the dialog, we reset rubberbands for each info
-        # For the first time, cf_info does not exist, therefore we cannot access it and reset rubberbands
-        try:
-            self.info_cf.resetRubberbands()
-        except AttributeError as e:
-            pass
-
-
-    def get_all_actions(self):
-
-        actions_list = self.iface.mainWindow().findChildren(QAction)
-        for action in actions_list:
-           self.controller.log_info(str(action.objectName()))
-           action.triggered.connect(partial(self.show_action_name, action))
-
-
-    def show_action_name(self, action):
-        self.controller.log_info(str(action.objectName()))
-
-
-    def get_points(self, list_coord=None):
-        """ Return list of QgsPoints taken from geometry
-        :type list_coord: list of coors in format ['x1 y1', 'x2 y2',....,'x99 y99']
-        """
-
-        coords = list_coord.group(1)
-        polygon = coords.split(',')
-        points = []
-
-        for i in range(0, len(polygon)):
-            x, y = polygon[i].split(' ')
-            point = QgsPointXY(float(x), float(y))
-            points.append(point)
-
-        return points
-
-
-    def draw_polyline(self, points, color=QColor(255, 0, 0, 100), width=5, duration_time=None):
-        """ Draw 'line' over canvas following list of points
-         :param duration_time: integer milliseconds ex: 3000 for 3 seconds
-         """
-
-        if self.rubber_polygon is None:
-            self.init_rubber()
-
-        rb = self.rubber_polygon
-        polyline = QgsGeometry.fromPolylineXY(points)
-        rb.setToGeometry(polyline, None)
-        rb.setColor(color)
-        rb.setWidth(width)
-        rb.show()
-
-        # wait to simulate a flashing effect
-        if duration_time is not None:
-            QTimer.singleShot(duration_time, self.resetRubberbands)
-
-        return rb
-
-
-    def resetRubberbands(self):
-
-        if self.rubber_polygon is None:
-            self.init_rubber()
-
-        self.rubber_point.reset(0)
-        self.rubber_polygon.reset(2)
-
-
-    def restore_user_layer(self):
-
-        if self.user_current_layer:
-            self.iface.setActiveLayer(self.user_current_layer)
-        else:
-            layer = self.controller.get_layer_by_tablename('v_edit_node')
-            if layer: self.iface.setActiveLayer(layer)
 

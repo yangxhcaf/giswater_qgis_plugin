@@ -6,9 +6,6 @@ or (at your option) any later version.
 """
 # -*- coding: utf-8 -*-
 from qgis.PyQt.QtCore import QSettings
-from qgis.PyQt.QtWidgets import QDockWidget
-
-from functools import partial
 
 from .api_cf import ApiCF
 from .manage_element import ManageElement
@@ -16,7 +13,6 @@ from .manage_document import ManageDocument
 from .manage_workcat_end import ManageWorkcatEnd
 from .delete_feature import DeleteFeature
 from .parent import ParentAction
-from ..ui_manager import DockerUi
 
 
 class Edit(ParentAction):
@@ -42,14 +38,17 @@ class Edit(ParentAction):
         self.feature_cat = feature_cat
         self.layer = self.controller.get_layer_by_tablename(feature_cat.parent_layer)
         if self.layer:
+            # Get user values (Settings/Options/Digitizing/Suppress attribute from pop-up after feature creation)
+            # and set True
             self.suppres_form = QSettings().value("/Qgis/digitizing/disable_enter_attribute_values_dialog")
             QSettings().setValue("/Qgis/digitizing/disable_enter_attribute_values_dialog", True)
+
             self.iface.setActiveLayer(self.layer)
             self.layer.startEditing()
             self.iface.actionAddFeature().trigger()
             self.layer.featureAdded.connect(self.open_new_feature)
         else:
-            message = "Layer not found"
+            message = "Selected layer name not found"
             self.controller.show_warning(message, parameter=feature_cat.parent_layer)
 
 
@@ -63,7 +62,7 @@ class Edit(ParentAction):
         if self.layer.geometryType() == 0:
             points = geom.asPoint()
             list_points = f'"x1":{points.x()}, "y1":{points.y()}'
-        elif self.layer.geometryType() in (1, 2):
+        elif self.layer.geometryType() in(1, 2):
             points = geom.asPolyline()
             init_point = points[0]
             last_point = points[-1]
@@ -72,25 +71,10 @@ class Edit(ParentAction):
         else:
             self.controller.log_info(str(type("NO FEATURE TYPE DEFINED")))
 
-        if hasattr(self, 'dlg_docker') and type(self.dlg_docker) is DockerUi:
-            self.close_docker()
-
-        row = self.controller.get_config('qgis_form_docker')
-        if row:
-            if row[0].lower() == 'true':
-                self.close_docker()
-                self.dlg_docker = DockerUi()
-                self.dlg_docker.dlg_closed.connect(self.close_docker)
-                self.manage_docker_options()
-            else:
-                self.dlg_docker = None
-        else:
-            self.dlg_docker = None
-
         self.api_cf = ApiCF(self.iface, self.settings, self.controller, self.plugin_dir, 'data')
         result, dialog = self.api_cf.open_form(point=list_points, feature_cat=self.feature_cat,
                                                new_feature_id=feature_id, layer_new_feature=self.layer,
-                                               tab_type='data', new_feature=feature, docker=self.dlg_docker)
+                                               tab_type='data', new_feature=feature)
 
         # Restore user value (Settings/Options/Digitizing/Suppress attribute from pop-up after feature creation)
         QSettings().setValue("/Qgis/digitizing/disable_enter_attribute_values_dialog", self.suppres_form)
@@ -99,19 +83,7 @@ class Edit(ParentAction):
             self.layer.deleteFeature(feature.id())
             self.iface.actionRollbackEdits().trigger()
 
-
-    def close_docker(self):
-        """ Save QDockWidget position (1=Left, 2=right, 8=bottom, 4=top),
-            remove from iface and del class
-        """
-
-        if hasattr(self, 'dlg_docker') and type(self.dlg_docker) is DockerUi:
-            if not self.dlg_docker.isFloating():
-                cur_user = self.controller.get_current_user()
-                docker_pos = self.iface.mainWindow().dockWidgetArea(self.dlg_docker)
-                self.controller.plugin_settings_set_value(f"docker_info_{cur_user}", docker_pos)
-                self.iface.removeDockWidget(self.dlg_docker)
-                del self.dlg_docker
+        #self.iface.actionPan().trigger()
 
 
     def get_feature_by_id(self, layer, id_):

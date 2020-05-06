@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>437</width>
-    <height>754</height>
+    <height>747</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -280,13 +280,6 @@
           <layout class="QGridLayout" name="gridLayout_26">
            <item row="0" column="0">
             <layout class="QGridLayout" name="gridLayout_23">
-             <item row="1" column="0">
-              <widget class="QPushButton" name="btn_gis_create">
-               <property name="text">
-                <string>Create QGIS project file</string>
-               </property>
-              </widget>
-             </item>
              <item row="0" column="0">
               <widget class="QPushButton" name="btn_schema_create">
                <property name="sizePolicy">
@@ -303,6 +296,20 @@
                </property>
                <property name="text">
                 <string>Create DB project schema</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QPushButton" name="btn_gis_create">
+               <property name="text">
+                <string>Create QGIS project file</string>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QPushButton" name="btn_task_example">
+               <property name="text">
+                <string>Task example</string>
                </property>
               </widget>
              </item>
@@ -940,20 +947,13 @@
         <item row="1" column="0">
          <widget class="QGroupBox" name="groupBox">
           <property name="title">
-           <string>Plugin files generator</string>
+           <string>QGIS templates</string>
           </property>
           <layout class="QGridLayout" name="gridLayout_14">
            <item row="0" column="0">
             <widget class="QPushButton" name="btn_create_qgis_template">
              <property name="text">
-              <string>QGIS templates</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="btn_translation">
-             <property name="text">
-              <string>Translation files</string>
+              <string>Update QGIS templates</string>
              </property>
             </widget>
            </item>

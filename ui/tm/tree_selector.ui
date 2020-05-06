@@ -85,16 +85,6 @@
             <item>
              <widget class="QLineEdit" name="txt_selected_filter"/>
             </item>
-            <item>
-             <widget class="QLabel" name="lbl_builder">
-              <property name="text">
-               <string>Filtrar per empresa:</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QComboBox" name="cmb_filter_builder"/>
-            </item>
            </layout>
           </item>
          </layout>
@@ -104,11 +94,7 @@
           <item>
            <layout class="QVBoxLayout" name="verticalLayout_8">
             <item>
-             <widget class="QTableView" name="all_rows">
-              <property name="sortingEnabled">
-               <bool>true</bool>
-              </property>
-             </widget>
+             <widget class="QTableView" name="all_rows"/>
             </item>
             <item>
              <spacer name="horizontalSpacer_6">
@@ -353,11 +339,7 @@
           <item>
            <layout class="QVBoxLayout" name="verticalLayout_5">
             <item>
-             <widget class="QTableView" name="selected_rows">
-              <property name="sortingEnabled">
-               <bool>true</bool>
-              </property>
-             </widget>
+             <widget class="QTableView" name="selected_rows"/>
             </item>
             <item>
              <spacer name="horizontalSpacer_8">

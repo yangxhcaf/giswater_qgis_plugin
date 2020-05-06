@@ -33,7 +33,7 @@
           <item>
            <widget class="QLabel" name="label">
             <property name="text">
-             <string/>
+             <string>TextLabel</string>
             </property>
            </widget>
           </item>
