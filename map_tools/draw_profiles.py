@@ -91,6 +91,7 @@ class DrawProfiles(ParentMapTool):
         self.dlg_draw_profile.btn_selection.clicked.connect(partial(self.activate_snapping, start_point))
         self.dlg_draw_profile.btn_selection.clicked.connect(partial(self.activate_snapping_node, self.dlg_draw_profile.btn_selection))
         self.dlg_draw_profile.btn_draw_profile.clicked.connect(partial(self.get_profile))
+        self.dlg_draw_profile.btn_save_profile.clicked.connect(self.save_profile)
 
 
 
@@ -173,6 +174,11 @@ class DrawProfiles(ParentMapTool):
 
         self.paint_event(result['body']['data']['arc'], result['body']['data']['node'])
 
+        # Maximize window (after drawing)
+        self.plot.show()
+        mng = self.plot.get_current_fig_manager()
+        mng.window.showMaximized()
+
 
     def set_composer_path(self):
 
@@ -203,12 +209,13 @@ class DrawProfiles(ParentMapTool):
     def save_profile(self):
         """ Save profile """
         
-        profile_id = self.dlg_draw_profile.profile_id.text()
-        start_point = self.widget_start_point.text()
-        end_point = self.widget_end_point.text()
+        profile_id = self.dlg_draw_profile.txt_profile_id.text()
+        # start_point = self.widget_start_point.text()
+        # end_point = self.widget_end_point.text()
+        tbl_list_arc = self.dlg_draw_profile.tbl_list_arc.text()
         
         # Check if all data are entered
-        if profile_id == '' or start_point == '' or end_point == '':
+        if profile_id == '' or tbl_list_arc == '':
             message = "Some data is missing"
             self.controller.show_info_box(message, "Info")
             return
@@ -520,24 +527,21 @@ class DrawProfiles(ParentMapTool):
 
         # Clear plot
         plt.gcf().clear()
+
         # arc_id ,node_id list of nodes and arc form dijkstra algoritam
         self.set_parameters(arcs, nodes)
 
         self.fill_memory(arcs, nodes)
-        print(f"TEST1")
         self.set_table_parameters()
-        print(f"TEST2")
+
         # Start drawing
         # Draw first | start node
         self.draw_first_node(self.nodes[0])
-        print(f"TEST3")
-        # Draw nodes between first and last node
-        # for i in range(1, self.n - 1):
-        #
-        #     self.draw_nodes(self.nodes[i], self.nodes[i - 1], i)
-        #
-        #     self.draw_ground()
 
+        # Draw nodes between first and last node
+        for i in range(1, self.n - 1):
+            self.draw_nodes(self.nodes[i], self.nodes[i - 1], i)
+            self.draw_ground()
         # Draw last node
         self.draw_last_node(self.nodes[self.n - 1], self.nodes[self.n - 2], self.n - 1)
 
@@ -563,7 +567,6 @@ class DrawProfiles(ParentMapTool):
 
         # Save profile with dpi = 300
         plt.savefig(img_path, dpi=300)
-        print(f"TEST FINAL")
 
 
     def set_properties(self):
@@ -598,7 +601,7 @@ class DrawProfiles(ParentMapTool):
         """ Get and calculate parameters and values for drawing """
 
         self.list_of_selected_arcs = arcs
-
+        self.list_of_selected_nodes = []
         for node in nodes:
             if node['sys_type'] == 'TOP-REAL':
                 self.list_of_selected_nodes.append(node)
@@ -611,14 +614,12 @@ class DrawProfiles(ParentMapTool):
 
         for arc in arcs:
             self.gis_length.append(arc['length'])
-
         # Calculate start_point (coordinates) of drawing for each node
         n = len(self.gis_length)
         for i in range(1, n):
             x = self.start_point[i - 1] + self.gis_length[i]
             self.start_point.append(x)
             i += 1
-
 
     def fill_memory(self, arcs, nodes):
         """ Get parameters from data base. Fill self.nodes with parameters postgres """
@@ -638,7 +639,8 @@ class DrawProfiles(ParentMapTool):
 
                 self.nodes.append(parameters)
         n = 0
-        for arc in arcs:
+        # TODO:: Dont use reversed and sort arcs
+        for arc in reversed(arcs):
 
             self.nodes[n].z1 = arc['z1']
             self.nodes[n].z2 = arc['z2']
@@ -805,19 +807,15 @@ class DrawProfiles(ParentMapTool):
     def draw_nodes(self, node, prev_node, index):
         """ Draw nodes between first and last node """
 
-        print(f"NODE ID -> {node.node_id}")
-        print(f"prev NODE 1 -> {prev_node.node_1}")
-        print(f"prev NODE 2-> {prev_node.node_2}")
         if node.node_id == prev_node.node_2:
             z1 = prev_node.z2
             reverse = False
-        elif node.node_id == prev_node.node_1:
+        elif node.node_id == str(int(prev_node.node_1)-1):
             z1 = prev_node.z1
             reverse = True
 
-        print(f"NODE ID -> {node.node_id}")
-        print(f"NODE 1 -> {node.node_1}")
-        print(f"NODE 2-> {node.node_2}")
+        if node.node_1 is None:
+            return
         if node.node_id == node.node_1:
             z2 = node.z1
         elif node.node_id == node.node_2:
@@ -1027,8 +1025,7 @@ class DrawProfiles(ParentMapTool):
         # TODO:: comentar lista slast i ilast
         s1x = self.slast[0]
         s1y = self.slast[1]
-        print(f"NODE START POINT -> {node.start_point}")
-        print(f"NODE START POINT -> {node.geom}")
+
         s2x = node.start_point - node.geom / 2
         s2y = node.top_elev - node.ymax + z + prev_node.cat_geom
         s3x = node.start_point - node.geom / 2
