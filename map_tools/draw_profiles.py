@@ -63,6 +63,7 @@ class DrawProfiles(ParentMapTool):
 
         self.list_of_selected_nodes = []
         self.nodes = []
+        self.links = []
         self.rotation_vd_exist = False
 
 
@@ -169,10 +170,9 @@ class DrawProfiles(ParentMapTool):
 
         extras = f'"initNode":"116", "endNode":"111", "composer":"mincutA4", "legendFactor":1, "linksDistance":1, "scale":{{"scaleToFit":false, "eh":2000, "ev":500}}, "ComposerTemplates":[{{"ComposerTemplate":"mincutA4", "ComposerMap":[{{"width":"179.0","height":"140.826","index":0, "name":"map0"}},{{"width":"77.729","height":"55.9066","index":1, "name":"map7"}}]}},{{"ComposerTemplate":"mincutA3","ComposerMap":[{{"width":"53.44","height":"55.9066","index":0, "name":"map7"}},{{"width":"337.865","height":"275.914","index":1, "name":"map6"}}]}}]'
         body = self.create_body(extras=extras)
-        result = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
-        if not result: return
-
-        self.paint_event(result['body']['data']['arc'], result['body']['data']['node'])
+        self.profile_json = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
+        if not self.profile_json: return
+        self.paint_event(self.profile_json['body']['data']['arc'], self.profile_json['body']['data']['node'],self.profile_json['body']['data']['terrain'])
 
         # Maximize window (after drawing)
         self.plot.show()
@@ -522,16 +522,16 @@ class DrawProfiles(ParentMapTool):
             self.exec_path()
 
 
-    def paint_event(self, arcs, nodes):
+    def paint_event(self, arcs, nodes, terrains):
         """ Parent function - Draw profiles """
 
         # Clear plot
         plt.gcf().clear()
 
         # arc_id ,node_id list of nodes and arc form dijkstra algoritam
-        self.set_parameters(arcs, nodes)
+        self.set_parameters(arcs, nodes, terrains)
 
-        self.fill_memory(arcs, nodes)
+        self.fill_memory(arcs, nodes, terrains)
         self.set_table_parameters()
 
         # Start drawing
@@ -541,14 +541,35 @@ class DrawProfiles(ParentMapTool):
         # Draw nodes between first and last node
         for i in range(1, self.n - 1):
             self.draw_nodes(self.nodes[i], self.nodes[i - 1], i)
+
+        # Draw ground first node and nodes between first and last node
+        for i in range(1, self.t):
+            self.first_top_x = self.links[i-1].start_point
+            self.node_top_x = self.links[i].start_point
+            self.first_top_y = self.links[i-1].node_id # node_id = top_n1
+            self.node_top_y =  self.links[i-1].geom # geom = top_n2
             self.draw_ground()
+
+            # DRAW TABLE-MARKS
+            self.draw_marks(self.node_top_x, first_vl=False)
+            # Fill table
+            self.fill_link_data(self.node_top_x, i, self.reverse)
+
+        # Draw ground last nodes
+        self.first_top_x = self.links[-1].start_point
+        self.node_top_x = self.nodes[-1].start_point
+        self.first_top_y = self.links[-1].top_elev
+        self.node_top_y = self.nodes[-1].top_elev
+        self.draw_ground()
+
         # Draw last node
         self.draw_last_node(self.nodes[self.n - 1], self.nodes[self.n - 2], self.n - 1)
 
+        # self.draw_ground()
         # Set correct variable for draw ground (drawn centered)
-        self.first_top_x = self.first_top_x + self.nodes[self.n - 2].geom / 2
+        # self.first_top_x = self.first_top_x + self.nodes[self.n - 2].geom / 2
 
-        self.draw_ground()
+        # self.draw_ground()
         self.draw_table_horizontals()
         self.set_properties()
         self.draw_coordinates()
@@ -597,20 +618,27 @@ class DrawProfiles(ParentMapTool):
         self.axes.set_ylim([y_min, y_max + 1 ])
 
 
-    def set_parameters(self, arcs, nodes):
+    def set_parameters(self, arcs, nodes, terrains):
         """ Get and calculate parameters and values for drawing """
 
+        # Declare list elements
         self.list_of_selected_arcs = arcs
         self.list_of_selected_nodes = []
+        self.list_of_selected_terrains = []
+
+        # Populate list nodes
         for node in nodes:
-            if node['sys_type'] == 'TOP-REAL':
-                self.list_of_selected_nodes.append(node)
+            self.list_of_selected_nodes.append(node)
+        # Populate list terrains
+        for terrain in terrains:
+            self.list_of_selected_terrains.append(terrain)
 
         self.gis_length = [0]
         self.start_point = [0]
 
         # Get arcs between nodes (on shortest path)
         self.n = len(self.list_of_selected_nodes)
+        self.t = len(self.list_of_selected_terrains)
 
         for arc in arcs:
             self.gis_length.append(arc['length'])
@@ -621,40 +649,75 @@ class DrawProfiles(ParentMapTool):
             self.start_point.append(x)
             i += 1
 
-    def fill_memory(self, arcs, nodes):
+
+    def fill_memory(self, arcs, nodes, terrains):
         """ Get parameters from data base. Fill self.nodes with parameters postgres """
         
         # Get parameters and fill the nodes
-        for i, node in enumerate(nodes):
-            if node['sys_type'] == 'TOP-REAL':
-                parameters = NodeData()
-                parameters.start_point = self.start_point[i]
-
-                parameters.top_elev = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['top_elev']
-                parameters.ymax = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['ymax']
-                parameters.elev = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['elev']
-                parameters.code = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['code']
-                parameters.node_id = node['node_id']
-                parameters.geom = node['cat_geom1']
-
-                self.nodes.append(parameters)
         n = 0
-        # TODO:: Dont use reversed and sort arcs
-        for arc in reversed(arcs):
+        for node in nodes:
+            parameters = NodeData()
+            parameters.start_point = self.start_point[n]
 
-            self.nodes[n].z1 = arc['z1']
-            self.nodes[n].z2 = arc['z2']
-            self.nodes[n].cat_geom = arc['cat_geom1']
-            self.nodes[n].elev1 = arc['elev1']
-            self.nodes[n].elev2 = arc['elev2']
-            self.nodes[n].y1 = arc['y1']
-            self.nodes[n].y2 = arc['y2']
-            #TODO:: Send SLOPE for arc
-            self.nodes[n].slope = 1
-            self.nodes[n].node_1 = arc['node_1']
-            self.nodes[n].node_2 = arc['node_2']
+            parameters.top_elev = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['top_elev']
+            parameters.ymax = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['ymax']
+            parameters.elev = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['elev']
+            parameters.code = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['code']
+            parameters.node_id = node['node_id']
+            parameters.geom = node['cat_geom1']
 
-            n += 1
+            self.nodes.append(parameters)
+            n = n + 1
+
+        n = 0
+        for terrain in terrains:
+            parameters = NodeData()
+            parameters.start_point = terrain['total_x']
+
+            parameters.top_elev = [json.loads(terrain['label_n1'], object_pairs_hook=OrderedDict)][0]['top_elev']
+            parameters.ymax = [json.loads(terrain['label_n1'], object_pairs_hook=OrderedDict)][0]['ymax']
+            parameters.elev = [json.loads(terrain['label_n1'], object_pairs_hook=OrderedDict)][0]['elev']
+            parameters.code = [json.loads(terrain['label_n1'], object_pairs_hook=OrderedDict)][0]['code']
+            parameters.node_id = terrain['top_n1']
+            parameters.geom = terrain['top_n2']
+
+            self.links.append(parameters)
+            n = n + 1
+
+        n = 0
+        # Check if is reverse profile
+        if self.nodes[n] == arcs[0]['node_1']:
+            # TODO:: Dont use reversed and sort arcs
+            for arc in arcs:
+                self.nodes[n].z1 = arc['z1']
+                self.nodes[n].z2 = arc['z2']
+                self.nodes[n].cat_geom = arc['cat_geom1']
+                self.nodes[n].elev1 = arc['elev1']
+                self.nodes[n].elev2 = arc['elev2']
+                self.nodes[n].y1 = arc['y1']
+                self.nodes[n].y2 = arc['y2']
+                # TODO:: Send SLOPE for arc
+                self.nodes[n].slope = 1
+                self.nodes[n].node_1 = arc['node_1']
+                self.nodes[n].node_2 = arc['node_2']
+
+                n += 1
+        else:
+            # TODO:: Dont use reversed and sort arcs
+            for arc in reversed(arcs):
+                self.nodes[n].z1 = arc['z1']
+                self.nodes[n].z2 = arc['z2']
+                self.nodes[n].cat_geom = arc['cat_geom1']
+                self.nodes[n].elev1 = arc['elev1']
+                self.nodes[n].elev2 = arc['elev2']
+                self.nodes[n].y1 = arc['y1']
+                self.nodes[n].y2 = arc['y2']
+                #TODO:: Send SLOPE for arc
+                self.nodes[n].slope = 1
+                self.nodes[n].node_1 = arc['node_1']
+                self.nodes[n].node_2 = arc['node_2']
+
+                n += 1
 
 
     def draw_first_node(self, node):
@@ -744,14 +807,15 @@ class DrawProfiles(ParentMapTool):
         self.data_fix_table(start_point, reverse)
 
 
-    def draw_marks(self, start_point):
+    def draw_marks(self, start_point, first_vl=True):
         """ Draw marks for each node """
 
-        # Vertical line [0,0]
-        x = [start_point, start_point]
-        y = [self.min_top_elev - 1 * self.height_row,
-             self.min_top_elev - 2 * self.height_row - Decimal(0.15) * self.height_row]
-        plt.plot(x, y, 'black', zorder=100)
+        if first_vl:
+            # Vertical line [0,0]
+            x = [start_point, start_point]
+            y = [self.min_top_elev - 1 * self.height_row,
+                 self.min_top_elev - 2 * self.height_row - Decimal(0.15) * self.height_row]
+            plt.plot(x, y, 'black', zorder=100)
 
         # Vertical lines [0,0] - marks
         x = [start_point, start_point]
@@ -774,30 +838,33 @@ class DrawProfiles(ParentMapTool):
     def data_fix_table(self, start_point, reverse):  #@UnusedVariable
         """ FILL THE FIXED PART OF TABLE WITH DATA - DRAW TEXT """
 
+        legend = self.profile_json['body']['data']['legend']
         c = (self.fix_x - self.fix_x * Decimal(0.2)) / 2
         plt.text(-(c + self.fix_x * Decimal(0.2)),
                  self.min_top_elev - 1 * self.height_row - Decimal(0.45) * self.height_row, 'DIAMETER', fontsize=7.5,
                  horizontalalignment='center')
 
         plt.text(-(c + self.fix_x * Decimal(0.2)),
-                 self.min_top_elev - 1 * self.height_row - Decimal(0.80) * self.height_row, 'SLP. / LEN.', fontsize=7.5,
+                 self.min_top_elev - 1 * self.height_row - Decimal(0.80) * self.height_row, legend['dimensions'], fontsize=7.5,
                  horizontalalignment='center')
 
         c = (self.fix_x * Decimal(0.25)) / 2
         plt.text(-(c + self.fix_x * Decimal(0.74)),
-                 self.min_top_elev - Decimal(2) * self.height_row - self.height_row * 3 / 2, 'ORDINATES', fontsize=7.5,
+                 self.min_top_elev - Decimal(2) * self.height_row - self.height_row * 3 / 2, legend['ordinates'], fontsize=7.5,
                  rotation='vertical', horizontalalignment='center', verticalalignment='center')
 
         plt.text(-self.fix_x * Decimal(0.70), self.min_top_elev - Decimal(2.05) * self.height_row - self.height_row / 2,
-                 'TOP ELEV', fontsize=7.5, verticalalignment='center')
+                 legend['topelev'], fontsize=7.5, verticalalignment='center')
         plt.text(-self.fix_x * Decimal(0.70), self.min_top_elev - Decimal(3.05) * self.height_row - self.height_row / 2,
-                 'Y MAX', fontsize=7.5, verticalalignment='center')
+                 legend['ymax'], fontsize=7.5, verticalalignment='center')
         plt.text(-self.fix_x * Decimal(0.70), self.min_top_elev - Decimal(4.05) * self.height_row - self.height_row / 2,
-                 'ELEV', fontsize=7.5, verticalalignment='center')
+                 legend['elev'], fontsize=7.5, verticalalignment='center')
+        # plt.text(-self.fix_x * Decimal(0.70), self.min_top_elev - Decimal(5.05) * self.height_row - self.height_row / 2,
+        #          'TOTAL LENGTH', fontsize=7.5, verticalalignment='center')
 
         c = (self.fix_x - self.fix_x * Decimal(0.2)) / 2
         plt.text(-(c + self.fix_x * Decimal(0.2)),
-                 self.min_top_elev - Decimal(self.height_row * 5 + self.height_row / 2), 'CODE', fontsize=7.5,
+                 self.min_top_elev - Decimal(self.height_row * 5 + self.height_row / 2), legend['code'], fontsize=7.5,
                  horizontalalignment='center', verticalalignment='center')
 
         # Fill table with values
@@ -809,10 +876,10 @@ class DrawProfiles(ParentMapTool):
 
         if node.node_id == prev_node.node_2:
             z1 = prev_node.z2
-            reverse = False
-        elif node.node_id == str(int(prev_node.node_1)-1):
+            self.reverse = False
+        elif node.node_id == str(int(prev_node.node_1)):
             z1 = prev_node.z1
-            reverse = True
+            self.reverse = True
 
         if node.node_1 is None:
             return
@@ -824,6 +891,8 @@ class DrawProfiles(ParentMapTool):
         # Get superior points
         s1x = self.slast[0]
         s1y = self.slast[1]
+        if node.geom is None:
+            node.geom = 0
         s2x = node.start_point - node.geom / 2
         s2y = node.top_elev - node.ymax + z1 + prev_node.cat_geom
         s3x = node.start_point - node.geom / 2
@@ -871,7 +940,7 @@ class DrawProfiles(ParentMapTool):
         self.draw_marks(node.start_point)
 
         # Fill table
-        self.fill_data(node.start_point, index, reverse)
+        self.fill_data(node.start_point, index, self.reverse)
 
         # Save last points before the last node
         self.slast = [s5x, s5y]
@@ -884,7 +953,6 @@ class DrawProfiles(ParentMapTool):
 
 
     def fill_data(self, start_point, indx, reverse=False):
-
 
         # Fill top_elevation and node_id for all nodes
         plt.annotate(' ' + '\n' + str(round(self.nodes[indx].top_elev, 2)) + '\n' + ' ',
@@ -1013,6 +1081,46 @@ class DrawProfiles(ParentMapTool):
                      fontsize=7.5, horizontalalignment='center')  # PUT IN THE MIDDLE PARAMETRIZATION
 
 
+    def fill_link_data(self, start_point, indx, reverse=False):
+
+        # Fill top_elevation and node_id for all nodes
+        plt.annotate(' ' + '\n' + str(round(self.links[indx].top_elev, 2)) + '\n' + ' ',
+                     xy=(Decimal(start_point), self.min_top_elev - Decimal(self.height_row * 2 + self.height_row / 2)),
+                     fontsize=6, rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+        # Draw node_id
+        plt.text(0 + start_point, self.min_top_elev - Decimal(self.height_row * 5 + self.height_row / 2),
+                 self.links[indx].code, fontsize=7.5,
+                 horizontalalignment='center', verticalalignment='center')
+
+        # Manage variables elev and y (elev1, elev2, y1, y2) acoording flow trace
+        if reverse:
+            # # Fill y_max
+            plt.annotate(' ' + '\n' + str(round(self.links[0].ymax, 2)),
+                         xy=(Decimal(0 + start_point),
+                             self.min_top_elev - Decimal(self.height_row * 3 + self.height_row / 2)), fontsize=6,
+                         rotation='vertical', horizontalalignment='center', verticalalignment='center')
+            # Fill elevation
+            plt.annotate(' ' + '\n' + str(round(self.links[0].elev, 2)),
+                         xy=(Decimal(0 + start_point),
+                             self.min_top_elev - Decimal(self.height_row * 4 + self.height_row / 2)), fontsize=6,
+                         rotation='vertical', horizontalalignment='center', verticalalignment='center')
+        else:
+            # Fill y_max
+            plt.annotate(
+                str(round(self.links[indx].ymax, 2)),
+                xy=(Decimal(0 + start_point),
+                    self.min_top_elev - Decimal(self.height_row * 3 + self.height_row / 2)), fontsize=6,
+                rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+            # Fill elevation
+            plt.annotate(
+                str(round(self.links[indx].elev, 2)),
+                xy=(Decimal(0 + start_point),
+                    self.min_top_elev - Decimal(self.height_row * 4 + self.height_row / 2)), fontsize=6,
+                rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+
     def draw_last_node(self, node, prev_node, index):
 
         if node.node_id == prev_node.node_2:
@@ -1088,18 +1196,14 @@ class DrawProfiles(ParentMapTool):
         for i in range(1, self.n):
             if self.nodes[i].top_elev > self.max_top_elev:
                 self.max_top_elev = self.nodes[i].top_elev
-
         # Calculating dimensions of x-fixed part of table
         self.fix_x = Decimal(Decimal(0.15) * self.nodes[self.n - 1].start_point)
-
         # Calculating dimensions of y-fixed part of table
         # Height y = height of table + height of graph
         self.z = Decimal(self.max_top_elev) - Decimal(self.min_top_elev)
         self.height_row = (Decimal(self.z) * Decimal(0.97)) / Decimal(5)
-
         # Height of graph + table
         self.height_y = Decimal(self.z * 2)
-
 
     def draw_table_horizontals(self):
 
@@ -1130,6 +1234,14 @@ class DrawProfiles(ParentMapTool):
         x = [self.nodes[self.n - 1].start_point, self.nodes[0].start_point - self.fix_x]
         y = [self.min_top_elev - 6 * self.height_row, self.min_top_elev - 6 * self.height_row]
         plt.plot(x, y, 'black',zorder=100)
+
+        # Last two lines
+        # x = [self.nodes[self.n - 1].start_point, self.nodes[0].start_point - self.fix_x]
+        # y = [self.min_top_elev - 7 * self.height_row, self.min_top_elev - 7 * self.height_row]
+        # plt.plot(x, y, 'black', zorder=100)
+        # x = [self.nodes[self.n - 1].start_point, self.nodes[0].start_point - self.fix_x]
+        # y = [self.min_top_elev - 8 * self.height_row, self.min_top_elev - 8 * self.height_row]
+        # plt.plot(x, y, 'black', zorder=100)
 
 
     def draw_coordinates(self):
@@ -1221,6 +1333,11 @@ class DrawProfiles(ParentMapTool):
         # Green triangle
         plt.plot(self.first_top_x,self.first_top_y,'g^',linewidth=3.5)
         plt.plot(self.node_top_x, self.node_top_y, 'g^',linewidth=3.5)
+        # print(f"first X -> {self.first_top_x}")
+        # print(f"node X -> {self.node_top_x}")
+        # print(f"first Y -> {self.first_top_y}")
+        # print(f"node Y -> {self.node_top_y}")
+        # print(f"=======================")
         x = [self.first_top_x, self.node_top_x]
         y = [self.first_top_y, self.node_top_y]
         plt.plot(x, y, 'green', linestyle='dashed')
