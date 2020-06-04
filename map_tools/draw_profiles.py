@@ -86,6 +86,9 @@ class DrawProfiles(ParentMapTool):
         self.load_settings(self.dlg_draw_profile)
         self.dlg_draw_profile.setWindowFlags(Qt.WindowStaysOnTopHint)
 
+        self.composers_path = self.dlg_draw_profile.findChild(QLineEdit, "composers_path")
+
+
         start_point = QgsMapToolEmitPoint(self.canvas)
         end_point = QgsMapToolEmitPoint(self.canvas)
         self.start_end_node = [None, None]
@@ -93,8 +96,20 @@ class DrawProfiles(ParentMapTool):
         self.dlg_draw_profile.btn_selection.clicked.connect(partial(self.activate_snapping_node, self.dlg_draw_profile.btn_selection))
         self.dlg_draw_profile.btn_draw_profile.clicked.connect(partial(self.get_profile))
         self.dlg_draw_profile.btn_save_profile.clicked.connect(self.save_profile)
+        self.dlg_draw_profile.btn_open_composer.clicked.connect(self.export_pdf)
+        # self.dlg_draw_profile.btn_export_pdf.clicked.connect(self.save_rotation_vdefault)
+        self.dlg_draw_profile.btn_update_path.clicked.connect(self.set_composer_path)
 
 
+        #Populate composer combo
+        self.dlg_draw_profile.cmb_composer.addItem('')
+        self.list_composers = []
+        composers_list = self.get_composer()
+        self.list_composers.append(['', ''])
+        for composer in composers_list:
+            elem = [composer, composer]
+            self.list_composers.append(elem)
+        utils_giswater.set_item_data(self.dlg_draw_profile.cmb_composer, self.list_composers, 0)
 
         self.open_dialog(self.dlg_draw_profile)
         return
@@ -168,6 +183,14 @@ class DrawProfiles(ParentMapTool):
 
     def get_profile(self):
 
+        # Get parameters
+        composer = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.cmb_composer)
+        links_distance = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.txt_min_distance)
+        legend_factor = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.txt_legend_factor)
+        scale_to_fit =  utils_giswater.isChecked(self.dlg_draw_profile, "chk_scalte_to_fit")
+        eh = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.txt_horizontal)
+        ev = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.txt_vertical)
+
         extras = f'"initNode":"116", "endNode":"111", "composer":"mincutA4", "legendFactor":1, "linksDistance":1, "scale":{{"scaleToFit":false, "eh":2000, "ev":500}}, "ComposerTemplates":[{{"ComposerTemplate":"mincutA4", "ComposerMap":[{{"width":"179.0","height":"140.826","index":0, "name":"map0"}},{{"width":"77.729","height":"55.9066","index":1, "name":"map7"}}]}},{{"ComposerTemplate":"mincutA3","ComposerMap":[{{"width":"53.44","height":"55.9066","index":0, "name":"map7"}},{{"width":"337.865","height":"275.914","index":1, "name":"map6"}}]}}]'
         body = self.create_body(extras=extras)
         self.profile_json = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
@@ -199,11 +222,11 @@ class DrawProfiles(ParentMapTool):
 
         self.files_qpt = [i for i in template_files if i.endswith('.qpt')]
 
-        self.dlg_draw_profile.cbx_template.clear()
-        self.dlg_draw_profile.cbx_template.addItem('')
+        self.dlg_draw_profile.cmb_composer.clear()
+        self.dlg_draw_profile.cmb_composer.addItem('')
         for template in self.files_qpt:
-            self.dlg_draw_profile.cbx_template.addItem(str(template))
-            self.dlg_draw_profile.cbx_template.currentIndexChanged.connect(self.set_template)
+            self.dlg_draw_profile.cmb_composer.addItem(str(template))
+            self.dlg_draw_profile.cmb_composer.currentIndexChanged.connect(self.set_template)
 
 
     def save_profile(self):
@@ -410,7 +433,13 @@ class DrawProfiles(ParentMapTool):
         self.arc_id = arc_id
 
         # Draw profile
-        self.paint_event(self.arc_id, self.node_id)
+        # self.paint_event(self.arc_id, self.node_id)
+        extras = f'"initNode":"116", "endNode":"111", "composer":"mincutA4", "legendFactor":1, "linksDistance":1, "scale":{{"scaleToFit":false, "eh":2000, "ev":500}}, "ComposerTemplates":[{{"ComposerTemplate":"mincutA4", "ComposerMap":[{{"width":"179.0","height":"140.826","index":0, "name":"map0"}},{{"width":"77.729","height":"55.9066","index":1, "name":"map7"}}]}},{{"ComposerTemplate":"mincutA3","ComposerMap":[{{"width":"53.44","height":"55.9066","index":0, "name":"map7"}},{{"width":"337.865","height":"275.914","index":1, "name":"map6"}}]}}]'
+        body = self.create_body(extras=extras)
+        self.profile_json = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
+        if not self.profile_json: return
+        self.paint_event(self.profile_json['body']['data']['arc'], self.profile_json['body']['data']['node'],
+                         self.profile_json['body']['data']['terrain'])
 
         self.dlg_draw_profile.cbx_template.setDisabled(False)
         self.dlg_draw_profile.btn_export_pdf.setDisabled(False)
@@ -664,7 +693,8 @@ class DrawProfiles(ParentMapTool):
             parameters.elev = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['elev']
             parameters.code = [json.loads(node['descript'], object_pairs_hook=OrderedDict)][0]['code']
             parameters.node_id = node['node_id']
-            parameters.geom = node['cat_geom1']
+            # parameters.geom = node['cat_geom1']
+            parameters.geom = 1
 
             self.nodes.append(parameters)
             n = n + 1
@@ -1497,9 +1527,16 @@ class DrawProfiles(ParentMapTool):
         for element in self.node_id:
             if element not in singles_list:
                 singles_list.append(element)
+        print(f"singles list -> {singles_list}")
         self.node_id = []
         self.node_id = singles_list
-        self.paint_event(self.arc_id, self.node_id)
+        # self.paint_event(self.arc_id, self.node_id)
+        extras = f'"initNode":"116", "endNode":"111", "composer":"mincutA4", "legendFactor":1, "linksDistance":1, "scale":{{"scaleToFit":false, "eh":2000, "ev":500}}, "ComposerTemplates":[{{"ComposerTemplate":"mincutA4", "ComposerMap":[{{"width":"179.0","height":"140.826","index":0, "name":"map0"}},{{"width":"77.729","height":"55.9066","index":1, "name":"map7"}}]}},{{"ComposerTemplate":"mincutA3","ComposerMap":[{{"width":"53.44","height":"55.9066","index":0, "name":"map7"}},{{"width":"337.865","height":"275.914","index":1, "name":"map6"}}]}}]'
+        body = self.create_body(extras=extras)
+        self.profile_json = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
+        if not self.profile_json: return
+        self.paint_event(self.profile_json['body']['data']['arc'], self.profile_json['body']['data']['node'],
+                         self.profile_json['body']['data']['terrain'])
 
         # Maximize window (after drawing)
         self.plot.show()
@@ -1511,12 +1548,18 @@ class DrawProfiles(ParentMapTool):
 
         # Remove duplicated nodes
         singles_list = []
-        for element in self.node_id:
-            if element not in singles_list:
-                singles_list.append(element)
-        self.node_id = []
-        self.node_id = singles_list
-        self.paint_event(self.arc_id, self.node_id)
+        # for element in self.node_id:
+        #     if element not in singles_list:
+        #         singles_list.append(element)
+        # self.node_id = []
+        # self.node_id = singles_list
+        # self.paint_event(self.arc_id, self.node_id)
+        extras = f'"initNode":"116", "endNode":"111", "composer":"mincutA4", "legendFactor":1, "linksDistance":1, "scale":{{"scaleToFit":false, "eh":2000, "ev":500}}, "ComposerTemplates":[{{"ComposerTemplate":"mincutA4", "ComposerMap":[{{"width":"179.0","height":"140.826","index":0, "name":"map0"}},{{"width":"77.729","height":"55.9066","index":1, "name":"map7"}}]}},{{"ComposerTemplate":"mincutA3","ComposerMap":[{{"width":"53.44","height":"55.9066","index":0, "name":"map7"}},{{"width":"337.865","height":"275.914","index":1, "name":"map6"}}]}}]'
+        body = self.create_body(extras=extras)
+        self.profile_json = self.controller.get_json('gw_fct_getprofilevalues', body, log_sql=True)
+        if not self.profile_json: return
+        self.paint_event(self.profile_json['body']['data']['arc'], self.profile_json['body']['data']['node'],
+                         self.profile_json['body']['data']['terrain'])
 
 
     def clear_profile(self):
@@ -1556,10 +1599,13 @@ class DrawProfiles(ParentMapTool):
     def generate_composer(self):
 
         # Check if template is selected
-        if str(self.dlg_draw_profile.cbx_template.currentText()) == "":
+        if str(self.dlg_draw_profile.cmb_composer.currentText()) == "":
             message = "You need to select a template"
             self.controller.show_warning(message)
             return
+
+        # Set template
+        self.set_template()
 
         # Check if template file exists
         plugin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -1610,13 +1656,14 @@ class DrawProfiles(ParentMapTool):
 
         # Get values from dialog
         profile = plugin_path + os.sep + "templates" + os.sep + "profile.png"
-        title = self.dlg_draw_profile.title.text()
-        rotation = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.rotation, False, False)
-        rotation = 0 if rotation in (None, '', 'null') else int(rotation)
-
-        first_node = self.dlg_draw_profile.start_point.text()
-        end_node = self.dlg_draw_profile.end_point.text()
-
+        # title = self.dlg_draw_profile.title.text()
+        title = 'test'
+        # rotation = utils_giswater.getWidgetText(self.dlg_draw_profile, self.dlg_draw_profile.rotation, False, False)
+        # rotation = 0 if rotation in (None, '', 'null') else int(rotation)
+        rotation = 0
+        first_node = 116
+        end_node = 111
+        print(f"comp_view -> {layout}")
         # Show layout
         self.iface.openLayoutDesigner(layout)
 
@@ -1644,9 +1691,11 @@ class DrawProfiles(ParentMapTool):
         layout.updateBounds()
 
 
+
+
     def set_template(self):
 
-        template = self.dlg_draw_profile.cbx_template.currentText()
+        template = self.dlg_draw_profile.cmb_composer.currentText()
         self.template = template[:-4]
 
 
@@ -1951,3 +2000,21 @@ class DrawProfiles(ParentMapTool):
                                                        directory=folder_path)
         if folder_path:
             utils_giswater.setWidgetText(dialog, widget, str(folder_path))
+
+    def get_composer(self, removed=None):
+        """ Get all composers from current QGis project """
+
+        composers = '['
+        active_composers = self.get_composers_list()
+
+        for composer in active_composers:
+            if type(composer) == QgsPrintLayout:
+                if composer != removed and composer.name():
+                    cur = composer.name()
+                    composers += '"' + cur + '"' + ', '
+        if len(composers) > 2:
+            composers = composers[:-2] + ']'
+        else:
+            composers += ']"'
+        composers_result = json.loads(composers, object_pairs_hook=OrderedDict)
+        return composers_result
